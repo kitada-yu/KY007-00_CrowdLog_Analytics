@@ -868,7 +868,13 @@
         </div>
 
         <div style="display: flex; gap: 15px; align-items: stretch">
-          <div class="drop-zone" id="dropZone">
+          <div
+            class="drop-zone"
+            id="dropZone"
+            role="button"
+            tabindex="0"
+            aria-label="CSVをここにドロップ、クリックで選択"
+          >
             <div class="drop-zone-icon">📁</div>
             <div class="drop-zone-text">CSVをここにドロップ</div>
             <input type="file" id="fileInput" accept=".csv" />
@@ -964,7 +970,11 @@
           </div>
 
           <div class="filter-title">📈 分析タイプ</div>
-          <div class="radio-group vertical-radio-group" id="analysisType">
+          <div
+            class="radio-group vertical-radio-group"
+            id="analysisType"
+            role="radiogroup"
+          >
             <label class="radio-item active">
               <input type="radio" name="analysisType" value="overall" checked />
               全体
@@ -995,7 +1005,6 @@
             class="filter-search"
             id="projectSearch"
             placeholder="🔍 検索..."
-            oninput="filterItems('projects', this.value)"
           />
           <div class="filter-actions">
             <button class="btn-small" onclick="selectAll('projects')">
@@ -1025,7 +1034,6 @@
             class="filter-search"
             id="departmentSearch"
             placeholder="🔍 検索..."
-            oninput="filterItems('departments', this.value)"
           />
           <div class="filter-actions">
             <button class="btn-small" onclick="selectAll('departments')">
@@ -1055,7 +1063,6 @@
             class="filter-search"
             id="employeeSearch"
             placeholder="🔍 検索..."
-            oninput="filterItems('employees', this.value)"
           />
           <div class="filter-actions">
             <button class="btn-small" onclick="selectAll('employees')">
@@ -1197,7 +1204,7 @@
           <div class="chart-controls">
             <div class="chart-control-group">
               <span class="chart-control-label">グラフ:</span>
-              <div class="radio-group" id="chartType">
+              <div class="radio-group" id="chartType" role="radiogroup">
                 <label class="radio-item active">
                   <input type="radio" name="chartType" value="bar" checked />
                   棒
@@ -1210,7 +1217,7 @@
             </div>
             <div class="chart-control-group">
               <span class="chart-control-label">単位:</span>
-              <div class="radio-group" id="unitType">
+              <div class="radio-group" id="unitType" role="radiogroup">
                 <label class="radio-item">
                   <input type="radio" name="unitType" value="hours" />
                   時間(h)
@@ -1243,1200 +1250,1212 @@
     </div>
 
     <!-- Toast -->
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" aria-live="polite" role="status"></div>
 
     <script>
-      // ========================================
-      // グローバル変数
-      // ========================================
-      let appData = {
-        records: [],
-        months: [],
-        departments: [],
-        projects: [],
-        employees: [],
-        savedFilters: [],
-      };
-
-      let filters = {
-        projects: [],
-        departments: [],
-        employees: [],
-        periodStart: "",
-        periodEnd: "",
-      };
-
-      let isManHour = true; // デフォルト人日
-
-      let filterSorts = {
-        projects: "name_asc",
-        departments: "name_asc",
-        employees: "name_asc",
-      };
-
-      function updateFilterSort(type, value) {
-        filterSorts[type] = value;
-        updateFiltersUI();
-      }
-
-      function getSortedItems(type) {
-        let items = [...appData[type]]; // ソース配列をコピー
-        const sortType = filterSorts[type];
-
-        if (sortType === "selected") {
-          items.sort((a, b) => {
-            const aSelected = filters[type].includes(a);
-            const bSelected = filters[type].includes(b);
-            if (aSelected && !bSelected) return -1;
-            if (!aSelected && bSelected) return 1;
-            return a.localeCompare(b, "ja");
-          });
-        } else if (sortType === "name_desc") {
-          items.sort((a, b) => b.localeCompare(a, "ja"));
-        } else {
-          items.sort((a, b) => a.localeCompare(b, "ja"));
-        }
-        return items;
-      }
-
-      const STORAGE_KEY = "crowdlog_data";
-
-      // ========================================
-      // 初期化
-      // ========================================
-      document.addEventListener("DOMContentLoaded", () => {
-        initDropZone();
-        initControlListeners();
-        loadFromStorage();
-      });
-
-      // ========================================
-      // ドロップゾーン
-      // ========================================
-      function initDropZone() {
-        const dropZone = document.getElementById("dropZone");
-        const fileInput = document.getElementById("fileInput");
-
-        dropZone.addEventListener("click", () => fileInput.click());
-
-        dropZone.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          dropZone.classList.add("dragover");
-        });
-
-        dropZone.addEventListener("dragleave", () => {
-          dropZone.classList.remove("dragover");
-        });
-
-        dropZone.addEventListener("drop", (e) => {
-          e.preventDefault();
-          dropZone.classList.remove("dragover");
-          const file = e.dataTransfer.files[0];
-          if (file) processFile(file);
-        });
-
-        fileInput.addEventListener("change", (e) => {
-          const file = e.target.files[0];
-          if (file) processFile(file);
-        });
-      }
-
-      function initControlListeners() {
-        document
-          .querySelectorAll('input[name="chartType"]')
-          .forEach((input) => {
-            input.addEventListener("change", updateChart);
-          });
-
-        document
-          .querySelectorAll('input[name="analysisType"]')
-          .forEach((input) => {
-            input.addEventListener("change", updateChart);
-          });
-      }
-
-      // ========================================
-      // ファイル処理
-      // ========================================
-      function processFile(file) {
-        if (!file.name.endsWith(".csv")) {
-          showToast("CSVファイルを選択してください", true);
-          return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const text = e.target.result;
-            parseCSV(text);
-            saveToStorage();
-            showUI();
-            updateChart();
-            showToast("データを読み込みました ✓");
-
-            // ファイル名表示
-            const fileInfo = document.getElementById("fileInfo");
-            fileInfo.textContent = `📄 ${file.name}`;
-            fileInfo.classList.remove("hidden");
-          } catch (error) {
-            console.error(error);
-            showToast("ファイルの解析に失敗しました: " + error.message, true);
-          }
-        };
-        reader.readAsText(file, "UTF-8");
-      }
-
-      // ========================================
-      // CSVパース
-      // ========================================
-      function parseCSV(text) {
-        const lines = text.split(/\r?\n/).filter((line) => line.trim());
-        if (lines.length < 2) {
-          throw new Error("データが不足しています");
-        }
-
-        const headers = parseCSVLine(lines[0]);
-        console.log("Headers:", headers);
-
-        // 列インデックスを特定（複数の候補名に対応）
-        const colIndex = {
-          employee: findColumnIndex(headers, [
-            "社員名",
-            "担当者名",
-            "従業員名",
-            "メンバー名",
-          ]),
-          project: findColumnIndex(headers, [
-            "プロジェクト名",
-            "プロジェクト",
-            "PJ名",
-          ]),
-          department: findColumnIndex(headers, [
-            "部署名",
-            "メンバー部署",
-            "部署",
-            "所属",
-          ]),
-          type: findColumnIndex(headers, [
-            "メンバー種類",
-            "予実フラグ",
-            "予実",
-            "種類",
-            "区分",
-          ]),
-          unit: findColumnIndex(headers, ["工数単位", "単位", "unit"]),
-          total: findColumnIndex(headers, ["合計", "計", "Total"]),
+      (function () {
+        // ========================================
+        // グローバル変数
+        // ========================================
+        let appData = {
+          records: [],
+          months: [],
+          departments: [],
+          projects: [],
+          employees: [],
+          savedFilters: [],
         };
 
-        console.log("Column indices:", colIndex);
+        let filters = {
+          projects: [],
+          departments: [],
+          employees: [],
+          periodStart: "",
+          periodEnd: "",
+        };
 
-        // 月列を特定（日付形式のヘッダー）
-        const monthColumns = [];
-        headers.forEach((header, index) => {
-          // YYYY/M/D または YYYY/MM/DD 形式
-          if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(header.trim())) {
-            monthColumns.push({ index, header: header.trim() });
-          }
-        });
+        let isManHour = true; // デフォルト人日
 
-        console.log("Month columns:", monthColumns);
+        let filterSorts = {
+          projects: "name_asc",
+          departments: "name_asc",
+          employees: "name_asc",
+        };
 
-        // 月次列が見つからない場合、合計列を代替として使う（存在すれば）
-        if (monthColumns.length === 0) {
-          if (colIndex.total >= 0) {
-            monthColumns.push({
-              index: colIndex.total,
-              header: headers[colIndex.total].trim(),
+        function updateFilterSort(type, value) {
+          filterSorts[type] = value;
+          updateFiltersUI();
+        }
+
+        function getSortedItems(type) {
+          let items = [...appData[type]]; // ソース配列をコピー
+          const sortType = filterSorts[type];
+
+          if (sortType === "selected") {
+            items.sort((a, b) => {
+              const aSelected = filters[type].includes(a);
+              const bSelected = filters[type].includes(b);
+              if (aSelected && !bSelected) return -1;
+              if (!aSelected && bSelected) return 1;
+              return a.localeCompare(b, "ja");
             });
+          } else if (sortType === "name_desc") {
+            items.sort((a, b) => b.localeCompare(a, "ja"));
           } else {
-            throw new Error(
-              "月次データ列が見つかりません（日付形式: YYYY/M/D）。合計列も見つかりません。"
-            );
+            items.sort((a, b) => a.localeCompare(b, "ja"));
           }
+          return items;
         }
 
-        // 月リスト作成（重複除去、YYYY/MM形式に変換）
-        const monthSet = new Set();
-        monthColumns.forEach((col) => {
-          const parts = col.header.split("/");
-          const monthKey = `${parts[0]}/${parts[1].padStart(2, "0")}`;
-          monthSet.add(monthKey);
+        const STORAGE_KEY = "crowdlog_data";
+
+        // ========================================
+        // 初期化
+        // ========================================
+        document.addEventListener("DOMContentLoaded", () => {
+          initDropZone();
+          initControlListeners();
+          loadFromStorage();
         });
-        appData.months = Array.from(monthSet).sort();
 
-        // データをパース
-        appData.records = [];
-        const departmentSet = new Set();
-        const projectSet = new Set();
-        const employeeSet = new Set();
+        // ========================================
+        // ドロップゾーン
+        // ========================================
+        function initDropZone() {
+          const dropZone = document.getElementById("dropZone");
+          const fileInput = document.getElementById("fileInput");
 
-        for (let i = 1; i < lines.length; i++) {
-          const values = parseCSVLine(lines[i]);
-          if (values.length < 5) continue;
+          // キーボード操作とアクセシビリティ対応
+          if (!dropZone.hasAttribute("tabindex"))
+            dropZone.setAttribute("tabindex", "0");
+          if (!dropZone.hasAttribute("role"))
+            dropZone.setAttribute("role", "button");
 
-          // 各フィールドを取得（-1の場合は空文字）
-          let employee =
-            colIndex.employee >= 0
-              ? (values[colIndex.employee] || "").trim()
-              : "";
-          let project =
-            colIndex.project >= 0
-              ? (values[colIndex.project] || "").trim()
-              : "";
-          let department =
-            colIndex.department >= 0
-              ? (values[colIndex.department] || "").trim()
-              : "";
-          let type =
-            colIndex.type >= 0 ? (values[colIndex.type] || "").trim() : "";
-
-          // プロジェクト名からコード部分を除去
-          // 例: "103005-9 同年事業" → "同年事業"、"P001 顧客管理" → "顧客管理"
-          project = removeCodePrefix(project);
-
-          // 部署名からコード部分を除去
-          // 例: "100001 テスト部" → "テスト部"
-          department = removeCodePrefix(department);
-
-          // 予実タイプを正規化（予算→予、実績→実）
-          let normalizedType = "";
-          if (
-            type.includes("予算") ||
-            type === "予" ||
-            type.includes("計画") ||
-            type.includes("Plan")
-          ) {
-            normalizedType = "予";
-          } else if (
-            type.includes("実績") ||
-            type === "実" ||
-            type.includes("Actual")
-          ) {
-            normalizedType = "実";
-          }
-
-          // 必須フィールドのチェック（従業員と予実タイプは必須）
-          if (!employee || !normalizedType) {
-            console.log(
-              `Skipping row ${i}: employee="${employee}", type="${type}"`
-            );
-            continue;
-          }
-
-          // プロジェクトと部署が空の場合はデフォルト値
-          if (!project) project = "(未設定)";
-          if (!department) department = "(未設定)";
-
-          departmentSet.add(department);
-          projectSet.add(project);
-          employeeSet.add(employee);
-
-          // 月次データを収集
-          const monthlyData = {};
-          // 行ごとの単位判定
-          // - CSV内の単位が「人日」の場合は時間に換算（* HOURS_PER_DAY）して内部は時間で保持
-          // - CSV内の単位が「人時」「時間」「h」等の場合はそのまま時間として扱う
-          let multiplier = 1;
-          if (colIndex.unit >= 0) {
-            const unitVal = (values[colIndex.unit] || "").trim();
-            if (/(人日|日|\bdays?\b|\bd\b)/i.test(unitVal)) {
-              multiplier = HOURS_PER_DAY;
-            } else if (/(人時|時間|h|hours?|hr\b)/i.test(unitVal)) {
-              multiplier = 1;
-            } else {
-              // 不明な単位はデフォルトで時間扱い（安全側）
-              multiplier = 1;
+          dropZone.addEventListener("click", () => fileInput.click());
+          dropZone.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInput.click();
             }
-          }
-
-          monthColumns.forEach((col) => {
-            // ヘッダーが日付形式なら YYYY/MM に整形する。合計列等はそのままヘッダーを使う。
-            const parts = col.header.split("/");
-            const monthKey =
-              parts.length >= 2
-                ? `${parts[0]}/${parts[1].padStart(2, "0")}`
-                : col.header.trim();
-            const raw = parseFloat(values[col.index]);
-            const value = (isNaN(raw) ? 0 : raw) * multiplier;
-            if (!monthlyData[monthKey]) {
-              monthlyData[monthKey] = 0;
-            }
-            monthlyData[monthKey] += value;
           });
 
-          appData.records.push({
-            department,
-            project,
-            employee,
-            type: normalizedType,
-            monthlyData,
+          dropZone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropZone.classList.add("dragover");
+          });
+
+          dropZone.addEventListener("dragleave", () => {
+            dropZone.classList.remove("dragover");
+          });
+
+          dropZone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropZone.classList.remove("dragover");
+            const file = e.dataTransfer.files[0];
+            if (file) processFile(file);
+          });
+
+          fileInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) processFile(file);
           });
         }
 
-        appData.departments = Array.from(departmentSet).sort();
-        appData.projects = Array.from(projectSet).sort();
-        appData.employees = Array.from(employeeSet).sort();
+        function initControlListeners() {}
 
-        console.log("Parsed records:", appData.records.length);
-        console.log("Departments:", appData.departments);
-        console.log("Projects:", appData.projects);
-        console.log("Employees:", appData.employees);
-
-        // フィルター初期化（全て解除）
-        filters.projects = [];
-        filters.departments = [];
-        filters.employees = [];
-
-        if (appData.records.length === 0) {
-          throw new Error(
-            "有効なデータが見つかりませんでした。列名を確認してください: 社員名/担当者名、メンバー種類/予実フラグ（予算/実績 or 予/実）"
-          );
-        }
-      }
-
-      function parseCSVLine(line) {
-        const result = [];
-        let current = "";
-        let inQuotes = false;
-
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === "," && !inQuotes) {
-            result.push(current.trim());
-            current = "";
-          } else {
-            current += char;
+        // ========================================
+        // ファイル処理
+        // ========================================
+        function processFile(file) {
+          if (!file.name.endsWith(".csv")) {
+            showToast("CSVファイルを選択してください", true);
+            return;
           }
-        }
-        result.push(current.trim());
-        return result;
-      }
 
-      // コードプレフィックスを除去する関数
-      // 例: "103005-9 同年事業" → "同年事業"
-      // 例: "100001 テスト部" → "テスト部"
-      // 例: "P001 顧客管理" → "顧客管理"
-      function removeCodePrefix(text) {
-        if (!text) return text;
-
-        // パターン: 「数字やアルファベット、ハイフンで構成されるコード + スペース + 日本語名」
-        // 例: "103005-9 同年事業", "100001 テスト部", "P001 プロジェクト名"
-        const match = text.match(/^[A-Za-z0-9\-_]+\s+(.+)$/);
-        if (match) {
-          return match[1].trim();
-        }
-        return text;
-      }
-
-      function findColumnIndex(
-        headers,
-        possibleNames,
-        excludePatterns = ["コード", "code", "Code", "ID"]
-      ) {
-        // まず、除外パターンに該当しない列で検索
-        for (let i = 0; i < headers.length; i++) {
-          const header = headers[i].trim();
-          // 除外パターンに該当する場合はスキップ
-          if (excludePatterns.some((pattern) => header.includes(pattern))) {
-            continue;
-          }
-          if (possibleNames.some((name) => header.includes(name))) {
-            return i;
-          }
-        }
-
-        // 見つからない場合は除外パターンを無視して再検索
-        for (let i = 0; i < headers.length; i++) {
-          const header = headers[i].trim();
-          if (possibleNames.some((name) => header.includes(name))) {
-            return i;
-          }
-        }
-        return -1;
-      }
-
-      // ========================================
-      // ストレージ保存・読み込み
-      // ========================================
-      function saveToStorage() {
-        try {
-          const dataToSave = {
-            records: appData.records,
-            months: appData.months,
-            departments: appData.departments,
-            projects: appData.projects,
-            employees: appData.employees,
-          };
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-        } catch (e) {
-          console.error("Storage save failed", e);
-        }
-      }
-
-      function loadFromStorage() {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          try {
-            const data = JSON.parse(saved);
-            appData.records = data.records || [];
-            appData.months = data.months || [];
-            appData.departments = data.departments || [];
-            appData.projects = data.projects || [];
-            appData.employees = data.employees || [];
-
-            if (appData.records.length > 0) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const text = e.target.result;
+              parseCSV(text);
+              saveToStorage();
               showUI();
               updateChart();
+              showToast("データを読み込みました ✓");
+
+              // ファイル名表示
               const fileInfo = document.getElementById("fileInfo");
-              if (fileInfo) {
-                fileInfo.textContent = "📂 前回のデータ";
-                fileInfo.classList.remove("hidden");
+              fileInfo.textContent = `📄 ${file.name}`;
+              fileInfo.classList.remove("hidden");
+            } catch (error) {
+              console.error(error);
+              showToast("ファイルの解析に失敗しました: " + error.message, true);
+            }
+          };
+          reader.readAsText(file, "UTF-8");
+        }
+
+        // ========================================
+        // CSVパース
+        // ========================================
+        // CSVパース（引用符内のカンマ・改行、二重引用符 "" を考慮した堅牢版）
+        function parseCSV(text) {
+          const rows = parseCSVRows(text).filter((r) =>
+            r.some((c) => c.trim() !== "")
+          );
+          if (rows.length < 2) {
+            throw new Error("データが不足しています");
+          }
+
+          const headers = rows[0].map((h) => (h || "").trim());
+          console.log("Headers:", headers);
+
+          // 列インデックスを特定（複数の候補名に対応）
+          const colIndex = {
+            employee: findColumnIndex(headers, [
+              "社員名",
+              "担当者名",
+              "従業員名",
+              "メンバー名",
+            ]),
+            project: findColumnIndex(headers, [
+              "プロジェクト名",
+              "プロジェクト",
+              "PJ名",
+            ]),
+            department: findColumnIndex(headers, [
+              "部署名",
+              "メンバー部署",
+              "部署",
+              "所属",
+            ]),
+            type: findColumnIndex(headers, [
+              "メンバー種類",
+              "予実フラグ",
+              "予実",
+              "種類",
+              "区分",
+            ]),
+            unit: findColumnIndex(headers, ["工数単位", "単位", "unit"]),
+            total: findColumnIndex(headers, ["合計", "計", "Total"]),
+          };
+
+          console.log("Column indices:", colIndex);
+
+          // 月列を特定（日付形式のヘッダー）
+          const monthColumns = [];
+          headers.forEach((header, index) => {
+            // YYYY/M/D または YYYY/MM/DD 形式
+            if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(header.trim())) {
+              monthColumns.push({ index, header: header.trim() });
+            }
+          });
+
+          console.log("Month columns:", monthColumns);
+
+          // 月次列が見つからない場合、合計列を代替として使う（存在すれば）
+          if (monthColumns.length === 0) {
+            if (colIndex.total >= 0) {
+              monthColumns.push({
+                index: colIndex.total,
+                header: headers[colIndex.total].trim(),
+              });
+            } else {
+              throw new Error(
+                "月次データ列が見つかりません（日付形式: YYYY/M/D）。合計列も見つかりません。"
+              );
+            }
+          }
+
+          // 月リスト作成（重複除去、YYYY/MM形式に変換）
+          const monthSet = new Set();
+          monthColumns.forEach((col) => {
+            const parts = col.header.split("/");
+            const monthKey = `${parts[0]}/${parts[1].padStart(2, "0")}`;
+            monthSet.add(monthKey);
+          });
+          appData.months = Array.from(monthSet).sort();
+
+          // データをパース
+          appData.records = [];
+          const departmentSet = new Set();
+          const projectSet = new Set();
+          const employeeSet = new Set();
+          for (let i = 1; i < rows.length; i++) {
+            const values = rows[i];
+            if (!values || values.length < 1) continue;
+
+            // 各フィールドを取得（-1の場合は空文字）
+            let employee =
+              colIndex.employee >= 0
+                ? (values[colIndex.employee] || "").trim()
+                : "";
+            let project =
+              colIndex.project >= 0
+                ? (values[colIndex.project] || "").trim()
+                : "";
+            let department =
+              colIndex.department >= 0
+                ? (values[colIndex.department] || "").trim()
+                : "";
+            let type =
+              colIndex.type >= 0 ? (values[colIndex.type] || "").trim() : "";
+
+            // プロジェクト名からコード部分を除去
+            // 例: "103005-9 同年事業" → "同年事業"、"P001 顧客管理" → "顧客管理"
+            project = removeCodePrefix(project);
+
+            // 部署名からコード部分を除去
+            // 例: "100001 テスト部" → "テスト部"
+            department = removeCodePrefix(department);
+
+            // 予実タイプを正規化（予算→予、実績→実）
+            let normalizedType = "";
+            if (
+              type.includes("予算") ||
+              type === "予" ||
+              type.includes("計画") ||
+              type.includes("Plan")
+            ) {
+              normalizedType = "予";
+            } else if (
+              type.includes("実績") ||
+              type === "実" ||
+              type.includes("Actual")
+            ) {
+              normalizedType = "実";
+            }
+
+            // 必須フィールドのチェック（従業員と予実タイプは必須）
+            if (!employee || !normalizedType) {
+              console.log(
+                `Skipping row ${i}: employee="${employee}", type="${type}"`
+              );
+              continue;
+            }
+
+            // プロジェクトと部署が空の場合はデフォルト値
+            if (!project) project = "(未設定)";
+            if (!department) department = "(未設定)";
+
+            departmentSet.add(department);
+            projectSet.add(project);
+            employeeSet.add(employee);
+
+            // 月次データを収集
+            const monthlyData = {};
+            // 行ごとの単位判定
+            // - CSV内の単位が「人日」の場合は時間に換算（* HOURS_PER_DAY）して内部は時間で保持
+            // - CSV内の単位が「人時」「時間」「h」等の場合はそのまま時間として扱う
+            let multiplier = 1;
+            if (colIndex.unit >= 0) {
+              const unitVal = (values[colIndex.unit] || "").trim();
+              if (/(人日|日|\bdays?\b|\bd\b)/i.test(unitVal)) {
+                multiplier = HOURS_PER_DAY;
+              } else if (/(人時|時間|h|hours?|hr\b)/i.test(unitVal)) {
+                multiplier = 1;
+              } else {
+                // 不明な単位はデフォルトで時間扱い（安全側）
+                multiplier = 1;
               }
             }
-          } catch (e) {
-            console.error("Storage load failed", e);
-          }
-        }
-      }
 
-      // ========================================
-      // UI表示
-      // ========================================
-      function showUI() {
-        document.getElementById("summaryCards").classList.remove("hidden");
-        document.getElementById("filterSection").classList.remove("hidden");
-        document.getElementById("favoritesSection").classList.remove("hidden");
-        document.getElementById("chartSection").classList.remove("hidden");
-        document.getElementById("btnClear").classList.remove("hidden");
-
-        loadSavedFilters();
-        updateFiltersUI();
-        updatePeriodSelector();
-        updateSummary();
-      }
-
-      function updatePeriodSelector() {
-        const startSelect = document.getElementById("periodStart");
-        const endSelect = document.getElementById("periodEnd");
-
-        // 現在の選択値を保持
-        const currentStart = filters.periodStart;
-        const currentEnd = filters.periodEnd;
-
-        // オプションを生成
-        const months = appData.months;
-
-        startSelect.innerHTML =
-          '<option value="">全期間（開始）</option>' +
-          months
-            .map(
-              (m) =>
-                `<option value="${m}" ${
-                  m === currentStart ? "selected" : ""
-                }>${m}</option>`
-            )
-            .join("");
-
-        endSelect.innerHTML =
-          '<option value="">全期間（終了）</option>' +
-          months
-            .map(
-              (m) =>
-                `<option value="${m}" ${
-                  m === currentEnd ? "selected" : ""
-                }>${m}</option>`
-            )
-            .join("");
-      }
-
-      function updatePeriodFilter() {
-        filters.periodStart = document.getElementById("periodStart").value;
-        filters.periodEnd = document.getElementById("periodEnd").value;
-        updateChart();
-        updateSummary();
-      }
-
-      function resetPeriod() {
-        filters.periodStart = "";
-        filters.periodEnd = "";
-        document.getElementById("periodStart").value = "";
-        document.getElementById("periodEnd").value = "";
-        updateChart();
-        updateSummary();
-      }
-
-      function updateFiltersUI() {
-        // プロジェクトフィルター
-        const projectItems = document.getElementById("projectFilterItems");
-        projectItems.innerHTML = getSortedItems("projects")
-          .map(
-            (p) => `
-                <label class="filter-chip ${
-                  filters.projects.includes(p) ? "active" : ""
-                }" data-value="${p}">
-                    <input type="checkbox" value="${p}" ${
-              filters.projects.includes(p) ? "checked" : ""
-            } 
-                           onchange="toggleFilter('projects', '${p}')">
-                    ${p}
-                </label>
-            `
-          )
-          .join("");
-
-        // 部署フィルター
-        const departmentItems = document.getElementById(
-          "departmentFilterItems"
-        );
-        departmentItems.innerHTML = getSortedItems("departments")
-          .map(
-            (d) => `
-                <label class="filter-chip ${
-                  filters.departments.includes(d) ? "active" : ""
-                }" data-value="${d}">
-                    <input type="checkbox" value="${d}" ${
-              filters.departments.includes(d) ? "checked" : ""
-            } 
-                           onchange="toggleFilter('departments', '${d}')">
-                    ${d}
-                </label>
-            `
-          )
-          .join("");
-
-        // 従業員フィルター
-        const employeeItems = document.getElementById("employeeFilterItems");
-        employeeItems.innerHTML = getSortedItems("employees")
-          .map(
-            (e) => `
-                <label class="filter-chip ${
-                  filters.employees.includes(e) ? "active" : ""
-                }" data-value="${e}">
-                    <input type="checkbox" value="${e}" ${
-              filters.employees.includes(e) ? "checked" : ""
-            } 
-                           onchange="toggleFilter('employees', '${escapeHtml(
-                             e
-                           )}')">
-                    ${e}
-                </label>
-            `
-          )
-          .join("");
-
-        // 検索状態を復元
-        const projectSearch = document.getElementById("projectSearch").value;
-        if (projectSearch) filterItems("projects", projectSearch);
-
-        const departmentSearch =
-          document.getElementById("departmentSearch").value;
-        if (departmentSearch) filterItems("departments", departmentSearch);
-
-        const employeeSearch = document.getElementById("employeeSearch").value;
-        if (employeeSearch) filterItems("employees", employeeSearch);
-      }
-
-      function filterItems(type, searchText) {
-        const containerId =
-          type === "projects"
-            ? "projectFilterItems"
-            : type === "departments"
-            ? "departmentFilterItems"
-            : "employeeFilterItems";
-        const container = document.getElementById(containerId);
-        const chips = container.querySelectorAll(".filter-chip");
-        const lowerSearch = searchText.toLowerCase();
-
-        chips.forEach((chip) => {
-          const value = chip.getAttribute("data-value").toLowerCase();
-          if (value.includes(lowerSearch)) {
-            chip.style.display = "flex";
-          } else {
-            chip.style.display = "none";
-          }
-        });
-      }
-
-      function escapeHtml(text) {
-        return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
-      }
-
-      function toggleFilter(type, value) {
-        const index = filters[type].indexOf(value);
-        if (index > -1) {
-          filters[type].splice(index, 1);
-        } else {
-          filters[type].push(value);
-
-          // 部署選択時に、その部署の従業員を自動選択
-          if (type === "departments") {
-            const departmentEmployees = appData.records
-              .filter((r) => r.department === value)
-              .map((r) => r.employee);
-            const uniqueEmployees = [...new Set(departmentEmployees)];
-
-            uniqueEmployees.forEach((emp) => {
-              if (!filters.employees.includes(emp)) {
-                filters.employees.push(emp);
+            monthColumns.forEach((col) => {
+              // ヘッダーが日付形式なら YYYY/MM に整形する。合計列等はそのままヘッダーを使う。
+              const parts = col.header.split("/");
+              const monthKey =
+                parts.length >= 2
+                  ? `${parts[0]}/${parts[1].padStart(2, "0")}`
+                  : col.header.trim();
+              const raw = parseFloat(values[col.index]);
+              const value = (isNaN(raw) ? 0 : raw) * multiplier;
+              if (!monthlyData[monthKey]) {
+                monthlyData[monthKey] = 0;
               }
+              monthlyData[monthKey] += value;
+            });
+
+            appData.records.push({
+              department,
+              project,
+              employee,
+              type: normalizedType,
+              monthlyData,
             });
           }
-        }
-        updateFiltersUI();
-        updateChart();
-        updateSummary();
-      }
 
-      function selectAll(type) {
-        filters[type] = [...appData[type]];
-        updateFiltersUI();
-        updateChart();
-        updateSummary();
-      }
+          appData.departments = Array.from(departmentSet).sort();
+          appData.projects = Array.from(projectSet).sort();
+          appData.employees = Array.from(employeeSet).sort();
 
-      function deselectAll(type) {
-        filters[type] = [];
-        updateFiltersUI();
-        updateChart();
-        updateSummary();
-      }
+          console.log("Parsed records:", appData.records.length);
+          console.log("Departments:", appData.departments);
+          console.log("Projects:", appData.projects);
+          console.log("Employees:", appData.employees);
 
-      // ========================================
-      // コントロールリスナー
-      // ========================================
-      function initControlListeners() {
-        // 分析タイプ
-        document
-          .querySelectorAll('input[name="analysisType"]')
-          .forEach((radio) => {
-            radio.addEventListener("change", () => {
-              updateRadioStyles("analysisType");
-              updateChart();
-            });
-          });
+          // フィルター初期化（全て解除）
+          filters.projects = [];
+          filters.departments = [];
+          filters.employees = [];
 
-        // グラフ種類
-        document
-          .querySelectorAll('input[name="chartType"]')
-          .forEach((radio) => {
-            radio.addEventListener("change", () => {
-              updateRadioStyles("chartType");
-              updateChart();
-            });
-          });
-
-        // 単位タイプ
-        document.querySelectorAll('input[name="unitType"]').forEach((radio) => {
-          radio.addEventListener("change", () => {
-            updateRadioStyles("unitType");
-            updateChart();
-            updateSummary();
-          });
-        });
-      }
-
-      function updateRadioStyles(groupId) {
-        const container = document.getElementById(groupId);
-        container.querySelectorAll(".radio-item").forEach((item) => {
-          const input = item.querySelector("input");
-          item.classList.toggle("active", input.checked);
-        });
-      }
-
-      // ========================================
-      // サマリー更新
-      // ========================================
-      function updateSummary() {
-        const filteredRecords = getFilteredRecords();
-
-        let totalPlanned = 0;
-        let totalActual = 0;
-
-        filteredRecords.forEach((record) => {
-          const total = sumMonthlyData(record.monthlyData);
-          if (record.type === "予") {
-            totalPlanned += total;
-          } else if (record.type === "実") {
-            totalActual += total;
+          if (appData.records.length === 0) {
+            throw new Error(
+              "有効なデータが見つかりませんでした。列名を確認してください: 社員名/担当者名、メンバー種類/予実フラグ（予算/実績 or 予/実）"
+            );
           }
-        });
+        }
 
-        const diff = totalActual - totalPlanned;
-        const rate = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0;
+        // CSVの全テキストから行単位の配列（配列の配列）を返す
+        function parseCSVRows(text) {
+          const rows = [];
+          let cur = [];
+          let field = "";
+          let inQuotes = false;
 
-        const unit = getUnitLabel();
-        const displayPlanned = convertToDisplayUnit(totalPlanned);
-        const displayActual = convertToDisplayUnit(totalActual);
-        const displayDiff = convertToDisplayUnit(diff);
+          for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const next = text[i + 1];
 
-        document.getElementById("totalPlanned").textContent =
-          displayPlanned.toFixed(1) + unit;
-        document.getElementById("totalActual").textContent =
-          displayActual.toFixed(1) + unit;
-
-        const diffEl = document.getElementById("totalDiff");
-        diffEl.textContent =
-          (displayDiff >= 0 ? "+" : "") + displayDiff.toFixed(1) + unit;
-        diffEl.className =
-          "summary-card-value " +
-          (diff >= 0 ? "diff-negative" : "diff-positive");
-
-        const rateEl = document.getElementById("totalRate");
-        rateEl.textContent = rate.toFixed(1) + "%";
-        rateEl.className =
-          "summary-card-value " +
-          (rate > 100 ? "diff-negative" : "diff-positive");
-      }
-
-      // ========================================
-      // フィルター済みレコード取得
-      // ========================================
-      function getFilteredRecords() {
-        // プロジェクトが何も選択されていない場合は表示しない（空のデータを返す）
-        if (!filters.projects || filters.projects.length === 0) return [];
-
-        return appData.records.filter((record) => {
-          const passProject = filters.projects.includes(record.project);
-
-          const deptSelected = filters.departments.length > 0;
-          const empSelected = filters.employees.length > 0;
-
-          // 振る舞い:
-          // - どちらも未選択 => ワイルドカード（true）
-          // - 片方だけ選択 => その選択でフィルタ
-          // - 両方選択 => 従業員選択で絞り込む（部署と従業員のAND）
-          let passDeptEmp = true;
-          if (deptSelected && empSelected) {
-            passDeptEmp = filters.departments.includes(record.department) && filters.employees.includes(record.employee);
-          } else if (deptSelected) {
-            passDeptEmp = filters.departments.includes(record.department);
-          } else if (empSelected) {
-            passDeptEmp = filters.employees.includes(record.employee);
+            if (char === '"') {
+              if (inQuotes && next === '"') {
+                // エスケープされたダブルクォート
+                field += '"';
+                i++; // 1文字進める
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === "," && !inQuotes) {
+              cur.push(field);
+              field = "";
+            } else if ((char === "\n" || char === "\r") && !inQuotes) {
+              // 改行処理（CRLF対応）
+              if (char === "\r" && next === "\n") {
+                // consume CRLF as single newline
+                // advance i to skip \n in next loop
+                // but outer loop will increment i, so increment once here
+                i++;
+              }
+              cur.push(field);
+              rows.push(cur);
+              cur = [];
+              field = "";
+            } else {
+              field += char;
+            }
           }
 
-          return passProject && passDeptEmp;
-        });
-      }
-
-      // ========================================
-      // 期間フィルター制御
-      // ========================================
-      function updatePeriodSelector() {
-        const startSelect = document.getElementById("periodStart");
-        const endSelect = document.getElementById("periodEnd");
-
-        if (!startSelect || !endSelect) return;
-
-        // 選択肢のクリア（保持している値があれば覚えておく）
-        const currentStart = filters.periodStart;
-        const currentEnd = filters.periodEnd;
-
-        startSelect.innerHTML = '<option value="">開始月</option>';
-        endSelect.innerHTML = '<option value="">終了月</option>';
-
-        const months = appData.months;
-
-        months.forEach((month) => {
-          const opt1 = document.createElement("option");
-          opt1.value = month;
-          opt1.textContent = month;
-          startSelect.appendChild(opt1);
-
-          const opt2 = document.createElement("option");
-          opt2.value = month;
-          opt2.textContent = month;
-          endSelect.appendChild(opt2);
-        });
-
-        // 未設定の場合は自動設定（全期間）
-        if (!filters.periodStart && months.length > 0) {
-          filters.periodStart = months[0];
-        }
-        if (!filters.periodEnd && months.length > 0) {
-          filters.periodEnd = months[months.length - 1];
+          // 残りのフィールド/行を確定
+          if (inQuotes) {
+            // 終端で引用符が閉じられていない場合は許容して処理を続ける
+            inQuotes = false;
+          }
+          if (field !== "" || cur.length > 0) {
+            cur.push(field);
+            rows.push(cur);
+          }
+          return rows;
         }
 
-        // プルダウンに反映
-        startSelect.value = filters.periodStart;
-        endSelect.value = filters.periodEnd;
-      }
+        // コードプレフィックスを除去する関数
+        // 例: "103005-9 同年事業" → "同年事業"
+        // 例: "100001 テスト部" → "テスト部"
+        // 例: "P001 顧客管理" → "顧客管理"
+        function removeCodePrefix(text) {
+          if (!text) return text;
 
-      function updatePeriodFilter() {
-        const startSelect = document.getElementById("periodStart");
-        const endSelect = document.getElementById("periodEnd");
+          // パターン: 「数字やアルファベット、ハイフンで構成されるコード + スペース + 日本語名」
+          // 例: "103005-9 同年事業", "100001 テスト部", "P001 プロジェクト名"
+          const match = text.match(/^[A-Za-z0-9\-_]+\s+(.+)$/);
+          if (match) {
+            return match[1].trim();
+          }
+          return text;
+        }
 
-        filters.periodStart = startSelect.value;
-        filters.periodEnd = endSelect.value;
+        function findColumnIndex(
+          headers,
+          possibleNames,
+          excludePatterns = ["コード", "code", "Code", "ID"]
+        ) {
+          // まず、除外パターンに該当しない列で検索
+          for (let i = 0; i < headers.length; i++) {
+            const header = headers[i].trim();
+            // 除外パターンに該当する場合はスキップ
+            if (excludePatterns.some((pattern) => header.includes(pattern))) {
+              continue;
+            }
+            if (possibleNames.some((name) => header.includes(name))) {
+              return i;
+            }
+          }
 
-        // 期間変更時
-        updateChart();
-        updateSummary();
-      }
+          // 見つからない場合は除外パターンを無視して再検索
+          for (let i = 0; i < headers.length; i++) {
+            const header = headers[i].trim();
+            if (possibleNames.some((name) => header.includes(name))) {
+              return i;
+            }
+          }
+          return -1;
+        }
 
-      function resetPeriod() {
-        const months = appData.months;
-        if (months.length > 0) {
-          filters.periodStart = months[0];
-          filters.periodEnd = months[months.length - 1];
-          updatePeriodSelector(); // UIに反映
+        // ========================================
+        // ========================================
+        // ストレージ保存・読み込み
+        // ========================================
+
+        // ========================================
+        // UI表示
+        // ========================================
+        function showUI() {
+          document.getElementById("summaryCards").classList.remove("hidden");
+          document.getElementById("filterSection").classList.remove("hidden");
+          document
+            .getElementById("favoritesSection")
+            .classList.remove("hidden");
+          document.getElementById("chartSection").classList.remove("hidden");
+          document.getElementById("btnClear").classList.remove("hidden");
+
+          loadSavedFilters();
+          updateFiltersUI();
+          updatePeriodSelector();
+          updateSummary();
+        }
+
+        function updatePeriodFilter() {
+          filters.periodStart = document.getElementById("periodStart").value;
+          filters.periodEnd = document.getElementById("periodEnd").value;
           updateChart();
           updateSummary();
         }
-      }
 
-      // 期間フィルターを適用した月リストを取得
-      function getFilteredMonths() {
-        let months = [...appData.months];
-
-        if (filters.periodStart) {
-          months = months.filter((m) => m >= filters.periodStart);
-        }
-        if (filters.periodEnd) {
-          months = months.filter((m) => m <= filters.periodEnd);
+        function resetPeriod() {
+          filters.periodStart = "";
+          filters.periodEnd = "";
+          document.getElementById("periodStart").value = "";
+          document.getElementById("periodEnd").value = "";
+          updateChart();
+          updateSummary();
         }
 
-        return months;
-      }
+        function updateFiltersUI() {
+          // プロジェクトフィルター（安全にDOMで構築）
+          const projectItems = document.getElementById("projectFilterItems");
+          projectItems.innerHTML = "";
+          getSortedItems("projects").forEach((p) => {
+            const label = document.createElement("label");
+            label.className =
+              "filter-chip" + (filters.projects.includes(p) ? " active" : "");
+            label.setAttribute("data-value", p);
 
-      // ========================================
-      // テーブルソート機能
-      // ========================================
-      let currentChartData = [];
-      let tableSort = { key: null, order: "asc" };
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.value = p;
+            if (filters.projects.includes(p)) input.checked = true;
+            input.addEventListener("change", () => toggleFilter("projects", p));
 
-      function sortTable(key) {
-        if (tableSort.key === key) {
-          if (tableSort.order === "asc") {
-            tableSort.order = "desc";
-          } else if (tableSort.order === "desc") {
-            tableSort.key = null; // ソート解除
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(p));
+            projectItems.appendChild(label);
+          });
+
+          // 部署フィルター（安全にDOMで構築）
+          const departmentItems = document.getElementById(
+            "departmentFilterItems"
+          );
+          departmentItems.innerHTML = "";
+          getSortedItems("departments").forEach((d) => {
+            const label = document.createElement("label");
+            label.className =
+              "filter-chip" +
+              (filters.departments.includes(d) ? " active" : "");
+            label.setAttribute("data-value", d);
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.value = d;
+            if (filters.departments.includes(d)) input.checked = true;
+            input.addEventListener("change", () =>
+              toggleFilter("departments", d)
+            );
+
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(d));
+            departmentItems.appendChild(label);
+          });
+
+          // 従業員フィルター（安全にDOMで構築）
+          const employeeItems = document.getElementById("employeeFilterItems");
+          employeeItems.innerHTML = "";
+          getSortedItems("employees").forEach((e) => {
+            const label = document.createElement("label");
+            label.className =
+              "filter-chip" + (filters.employees.includes(e) ? " active" : "");
+            label.setAttribute("data-value", e);
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.value = e;
+            if (filters.employees.includes(e)) input.checked = true;
+            input.addEventListener("change", () =>
+              toggleFilter("employees", e)
+            );
+
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(e));
+            employeeItems.appendChild(label);
+          });
+
+          // 検索状態を復元
+          const projectSearch = document.getElementById("projectSearch").value;
+          if (projectSearch) filterItems("projects", projectSearch);
+
+          const departmentSearch =
+            document.getElementById("departmentSearch").value;
+          if (departmentSearch) filterItems("departments", departmentSearch);
+
+          const employeeSearch =
+            document.getElementById("employeeSearch").value;
+          if (employeeSearch) filterItems("employees", employeeSearch);
+        }
+
+        function filterItems(type, searchText) {
+          const containerId =
+            type === "projects"
+              ? "projectFilterItems"
+              : type === "departments"
+              ? "departmentFilterItems"
+              : "employeeFilterItems";
+          const container = document.getElementById(containerId);
+          const chips = container.querySelectorAll(".filter-chip");
+          const lowerSearch = searchText.toLowerCase();
+
+          chips.forEach((chip) => {
+            const value = chip.getAttribute("data-value").toLowerCase();
+            if (value.includes(lowerSearch)) {
+              chip.style.display = "flex";
+            } else {
+              chip.style.display = "none";
+            }
+          });
+        }
+
+        function escapeHtml(text) {
+          return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function toggleFilter(type, value) {
+          const index = filters[type].indexOf(value);
+          if (index > -1) {
+            filters[type].splice(index, 1);
+          } else {
+            filters[type].push(value);
+
+            // 部署選択時に、その部署の従業員を自動選択
+            if (type === "departments") {
+              const departmentEmployees = appData.records
+                .filter((r) => r.department === value)
+                .map((r) => r.employee);
+              const uniqueEmployees = [...new Set(departmentEmployees)];
+
+              uniqueEmployees.forEach((emp) => {
+                if (!filters.employees.includes(emp)) {
+                  filters.employees.push(emp);
+                }
+              });
+            }
+          }
+          updateFiltersUI();
+          updateChart();
+          updateSummary();
+        }
+
+        function selectAll(type) {
+          filters[type] = [...appData[type]];
+          updateFiltersUI();
+          updateChart();
+          updateSummary();
+        }
+
+        function deselectAll(type) {
+          filters[type] = [];
+          updateFiltersUI();
+          updateChart();
+          updateSummary();
+        }
+
+        // ========================================
+        // コントロールリスナー
+        // ========================================
+        function initControlListeners() {
+          // 分析タイプ
+          document
+            .querySelectorAll('input[name="analysisType"]')
+            .forEach((radio) => {
+              radio.addEventListener("change", () => {
+                updateRadioStyles("analysisType");
+                updateChart();
+              });
+            });
+
+          // グラフ種類
+          document
+            .querySelectorAll('input[name="chartType"]')
+            .forEach((radio) => {
+              radio.addEventListener("change", () => {
+                updateRadioStyles("chartType");
+                updateChart();
+              });
+            });
+
+          // 単位タイプ
+          document
+            .querySelectorAll('input[name="unitType"]')
+            .forEach((radio) => {
+              radio.addEventListener("change", () => {
+                updateRadioStyles("unitType");
+                updateChart();
+                updateSummary();
+              });
+            });
+
+          // 検索入力のデバウンス処理（パフォーマンス向上）
+          const debounce = (fn, wait) => {
+            let t;
+            return function (...args) {
+              clearTimeout(t);
+              t = setTimeout(() => fn.apply(this, args), wait);
+            };
+          };
+
+          const projectSearch = document.getElementById("projectSearch");
+          if (projectSearch)
+            projectSearch.addEventListener(
+              "input",
+              debounce((e) => filterItems("projects", e.target.value), 250)
+            );
+
+          const departmentSearch = document.getElementById("departmentSearch");
+          if (departmentSearch)
+            departmentSearch.addEventListener(
+              "input",
+              debounce((e) => filterItems("departments", e.target.value), 250)
+            );
+
+          const employeeSearch = document.getElementById("employeeSearch");
+          if (employeeSearch)
+            employeeSearch.addEventListener(
+              "input",
+              debounce((e) => filterItems("employees", e.target.value), 250)
+            );
+        }
+
+        function updateRadioStyles(groupId) {
+          const container = document.getElementById(groupId);
+          container.querySelectorAll(".radio-item").forEach((item) => {
+            const input = item.querySelector("input");
+            item.classList.toggle("active", input.checked);
+          });
+        }
+
+        // ========================================
+        // サマリー更新
+        // ========================================
+        function updateSummary() {
+          const filteredRecords = getFilteredRecords();
+
+          let totalPlanned = 0;
+          let totalActual = 0;
+
+          filteredRecords.forEach((record) => {
+            const total = sumMonthlyData(record.monthlyData);
+            if (record.type === "予") {
+              totalPlanned += total;
+            } else if (record.type === "実") {
+              totalActual += total;
+            }
+          });
+
+          const diff = totalActual - totalPlanned;
+          const rate =
+            totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0;
+
+          const unit = getUnitLabel();
+          const displayPlanned = convertToDisplayUnit(totalPlanned);
+          const displayActual = convertToDisplayUnit(totalActual);
+          const displayDiff = convertToDisplayUnit(diff);
+
+          document.getElementById("totalPlanned").textContent =
+            displayPlanned.toFixed(1) + unit;
+          document.getElementById("totalActual").textContent =
+            displayActual.toFixed(1) + unit;
+
+          const diffEl = document.getElementById("totalDiff");
+          diffEl.textContent =
+            (displayDiff >= 0 ? "+" : "") + displayDiff.toFixed(1) + unit;
+          diffEl.className =
+            "summary-card-value " +
+            (diff >= 0 ? "diff-positive" : "diff-negative");
+
+          const rateEl = document.getElementById("totalRate");
+          rateEl.textContent = rate.toFixed(1) + "%";
+          rateEl.className =
+            "summary-card-value " +
+            (rate >= 100 ? "diff-positive" : "diff-negative");
+        }
+
+        // ========================================
+        // フィルター済みレコード取得
+        // ========================================
+        function getFilteredRecords() {
+          // プロジェクト選択が空の場合は全選択扱い（全件表示）
+          const projectSelected =
+            filters.projects && filters.projects.length > 0;
+
+          return appData.records.filter((record) => {
+            const passProject =
+              !projectSelected || filters.projects.includes(record.project);
+
+            const deptSelected = filters.departments.length > 0;
+            const empSelected = filters.employees.length > 0;
+
+            // 振る舞い:
+            // - どちらも未選択 => ワイルドカード（true）
+            // - 片方だけ選択 => その選択でフィルタ
+            // - 両方選択 => 従業員選択で絞り込む（部署と従業員のAND）
+            let passDeptEmp = true;
+            if (deptSelected && empSelected) {
+              passDeptEmp =
+                filters.departments.includes(record.department) &&
+                filters.employees.includes(record.employee);
+            } else if (deptSelected) {
+              passDeptEmp = filters.departments.includes(record.department);
+            } else if (empSelected) {
+              passDeptEmp = filters.employees.includes(record.employee);
+            }
+
+            return passProject && passDeptEmp;
+          });
+        }
+
+        // ========================================
+        // 期間フィルター制御
+        // ========================================
+        function updatePeriodSelector() {
+          const startSelect = document.getElementById("periodStart");
+          const endSelect = document.getElementById("periodEnd");
+
+          if (!startSelect || !endSelect) return;
+
+          // 選択肢のクリア（保持している値があれば覚えておく）
+          const currentStart = filters.periodStart;
+          const currentEnd = filters.periodEnd;
+
+          startSelect.innerHTML = '<option value="">開始月</option>';
+          endSelect.innerHTML = '<option value="">終了月</option>';
+
+          const months = appData.months;
+
+          months.forEach((month) => {
+            const opt1 = document.createElement("option");
+            opt1.value = month;
+            opt1.textContent = month;
+            startSelect.appendChild(opt1);
+
+            const opt2 = document.createElement("option");
+            opt2.value = month;
+            opt2.textContent = month;
+            endSelect.appendChild(opt2);
+          });
+
+          // 未設定の場合は自動設定（全期間）
+          if (!filters.periodStart && months.length > 0) {
+            filters.periodStart = months[0];
+          }
+          if (!filters.periodEnd && months.length > 0) {
+            filters.periodEnd = months[months.length - 1];
+          }
+
+          // プルダウンに反映
+          startSelect.value = filters.periodStart;
+          endSelect.value = filters.periodEnd;
+        }
+
+        function updatePeriodFilter() {
+          const startSelect = document.getElementById("periodStart");
+          const endSelect = document.getElementById("periodEnd");
+
+          filters.periodStart = startSelect.value;
+          filters.periodEnd = endSelect.value;
+
+          // 期間変更時
+          updateChart();
+          updateSummary();
+        }
+
+        function resetPeriod() {
+          const months = appData.months;
+          if (months.length > 0) {
+            filters.periodStart = months[0];
+            filters.periodEnd = months[months.length - 1];
+            updatePeriodSelector(); // UIに反映
+            updateChart();
+            updateSummary();
+          }
+        }
+
+        // 期間フィルターを適用した月リストを取得
+        function getFilteredMonths() {
+          let months = [...appData.months];
+
+          if (filters.periodStart) {
+            months = months.filter((m) => m >= filters.periodStart);
+          }
+          if (filters.periodEnd) {
+            months = months.filter((m) => m <= filters.periodEnd);
+          }
+
+          return months;
+        }
+
+        // ========================================
+        // テーブルソート機能
+        // ========================================
+        let currentChartData = [];
+        let tableSort = { key: null, order: "asc" };
+
+        function sortTable(key) {
+          if (tableSort.key === key) {
+            if (tableSort.order === "asc") {
+              tableSort.order = "desc";
+            } else if (tableSort.order === "desc") {
+              tableSort.key = null; // ソート解除
+              tableSort.order = "asc";
+            }
+          } else {
+            tableSort.key = key;
             tableSort.order = "asc";
           }
-        } else {
-          tableSort.key = key;
-          tableSort.order = "asc";
-        }
 
-        // データのソート
-        sortChartData(currentChartData);
+          // データのソート
+          sortChartData(currentChartData);
 
-        // グラフ再描画
-        const chartType = document.querySelector(
-          'input[name="chartType"]:checked'
-        ).value;
-        if (chartType === "bar") {
-          drawBarChart(currentChartData);
-        } else {
-          drawLineChart(currentChartData);
-        }
-
-        // テーブル再描画
-        drawTable(currentChartData);
-      }
-
-      // ========================================
-      // 単位変換用定数と関数
-      // ========================================
-      const HOURS_PER_DAY = 7.5;
-
-      function getUnitType() {
-        const radio = document.querySelector('input[name="unitType"]:checked');
-        return radio ? radio.value : "hours";
-      }
-
-      function convertToDisplayUnit(hours) {
-        if (getUnitType() === "days") {
-          return hours / HOURS_PER_DAY;
-        }
-        return hours;
-      }
-
-      function getUnitLabel() {
-        return getUnitType() === "days" ? "人日" : "h";
-      }
-
-      // キリの良い目盛り間隔を計算
-      function calculateNiceStep(max, targetTicks = 5) {
-        if (max <= 0) return 10;
-
-        // 大まかなステップ幅
-        const roughStep = max / targetTicks;
-
-        // 桁数を求める (例: 85 -> 10, 120 -> 100)
-        const power = Math.floor(Math.log10(roughStep));
-        const magnitude = Math.pow(10, power);
-
-        // 正規化されたステップ (例: 8.5, 1.2)
-        const normalizedStep = roughStep / magnitude;
-
-        let niceStep;
-        if (normalizedStep <= 1) {
-          niceStep = 1;
-        } else if (normalizedStep <= 2) {
-          niceStep = 2;
-        } else if (normalizedStep <= 5) {
-          niceStep = 5;
-        } else {
-          niceStep = 10;
-        }
-
-        return niceStep * magnitude;
-      }
-
-      // 期間フィルターを適用して月次データを合計
-      function sumMonthlyData(monthlyData) {
-        const filteredMonths = getFilteredMonths();
-        let total = 0;
-
-        filteredMonths.forEach((month) => {
-          if (monthlyData[month]) {
-            total += monthlyData[month];
-          }
-        });
-
-        return total;
-      }
-
-      // ========================================
-      // グラフ描画
-      // ========================================
-      function updateChart() {
-        const analysisType = document.querySelector(
-          'input[name="analysisType"]:checked'
-        ).value;
-        const chartType = document.querySelector(
-          'input[name="chartType"]:checked'
-        ).value;
-        const filteredRecords = getFilteredRecords();
-
-        let chartData;
-        switch (analysisType) {
-          case "overall":
-            chartData = aggregateOverall(filteredRecords);
-            break;
-          case "project":
-            chartData = aggregateByKey(filteredRecords, "project");
-            break;
-          case "department":
-            chartData = aggregateByKey(filteredRecords, "department");
-            break;
-          case "employee":
-            chartData = aggregateByKey(filteredRecords, "employee");
-            break;
-          case "monthly":
-            chartData = aggregateByMonth(filteredRecords);
-            break;
-        }
-
-        // ソート
-        sortChartData(chartData);
-
-        if (chartType === "bar") {
-          drawBarChart(chartData);
-        } else {
-          drawLineChart(chartData);
-        }
-
-        // テーブル描画
-        drawTable(chartData);
-      }
-
-      function aggregateOverall(records) {
-        let planned = 0;
-        let actual = 0;
-
-        records.forEach((record) => {
-          const total = sumMonthlyData(record.monthlyData);
-          if (record.type === "予") {
-            planned += total;
-          } else if (record.type === "実") {
-            actual += total;
-          }
-        });
-
-        return [
-          {
-            label: "全体",
-            planned,
-            actual,
-          },
-        ];
-      }
-
-      function aggregateByKey(records, key) {
-        const grouped = {};
-        const empDepts = {};
-
-        records.forEach((record) => {
-          const groupKey = record[key];
-
-          if (key === "employee" && record.department) {
-            empDepts[groupKey] = record.department;
+          // グラフ再描画
+          const chartType = document.querySelector(
+            'input[name="chartType"]:checked'
+          ).value;
+          if (chartType === "bar") {
+            drawBarChart(currentChartData);
+          } else {
+            drawLineChart(currentChartData);
           }
 
-          if (!grouped[groupKey]) {
-            grouped[groupKey] = { planned: 0, actual: 0 };
-          }
-          const total = sumMonthlyData(record.monthlyData);
-          if (record.type === "予") {
-            grouped[groupKey].planned += total;
-          } else if (record.type === "実") {
-            grouped[groupKey].actual += total;
-          }
-        });
+          // テーブル再描画
+          drawTable(currentChartData);
+        }
 
-        return Object.entries(grouped).map(([label, data]) => {
-          const item = {
+        // ========================================
+        // 単位変換用定数と関数
+        // ========================================
+        const HOURS_PER_DAY = 7.5;
+
+        function getUnitType() {
+          const radio = document.querySelector(
+            'input[name="unitType"]:checked'
+          );
+          return radio ? radio.value : "hours";
+        }
+
+        function convertToDisplayUnit(hours) {
+          if (getUnitType() === "days") {
+            return hours / HOURS_PER_DAY;
+          }
+          return hours;
+        }
+
+        function getUnitLabel() {
+          return getUnitType() === "days" ? "人日" : "h";
+        }
+
+        // キリの良い目盛り間隔を計算
+        function calculateNiceStep(max, targetTicks = 5) {
+          if (max <= 0) return 10;
+
+          // 大まかなステップ幅
+          const roughStep = max / targetTicks;
+
+          // 桁数を求める (例: 85 -> 10, 120 -> 100)
+          const power = Math.floor(Math.log10(roughStep));
+          const magnitude = Math.pow(10, power);
+
+          // 正規化されたステップ (例: 8.5, 1.2)
+          const normalizedStep = roughStep / magnitude;
+
+          let niceStep;
+          if (normalizedStep <= 1) {
+            niceStep = 1;
+          } else if (normalizedStep <= 2) {
+            niceStep = 2;
+          } else if (normalizedStep <= 5) {
+            niceStep = 5;
+          } else {
+            niceStep = 10;
+          }
+
+          return niceStep * magnitude;
+        }
+
+        // 期間フィルターを適用して月次データを合計
+        function sumMonthlyData(monthlyData) {
+          const filteredMonths = getFilteredMonths();
+          let total = 0;
+
+          filteredMonths.forEach((month) => {
+            if (monthlyData[month]) {
+              total += monthlyData[month];
+            }
+          });
+
+          return total;
+        }
+
+        // ========================================
+        // グラフ描画
+        // ========================================
+        function updateChart() {
+          const analysisType = document.querySelector(
+            'input[name="analysisType"]:checked'
+          ).value;
+          const chartType = document.querySelector(
+            'input[name="chartType"]:checked'
+          ).value;
+          const filteredRecords = getFilteredRecords();
+
+          let chartData;
+          switch (analysisType) {
+            case "overall":
+              chartData = aggregateOverall(filteredRecords);
+              break;
+            case "project":
+              chartData = aggregateByKey(filteredRecords, "project");
+              break;
+            case "department":
+              chartData = aggregateByKey(filteredRecords, "department");
+              break;
+            case "employee":
+              chartData = aggregateByKey(filteredRecords, "employee");
+              break;
+            case "monthly":
+              chartData = aggregateByMonth(filteredRecords);
+              break;
+          }
+
+          // ソート
+          sortChartData(chartData);
+
+          if (chartType === "bar") {
+            drawBarChart(chartData);
+          } else {
+            drawLineChart(chartData);
+          }
+
+          // テーブル描画
+          drawTable(chartData);
+        }
+
+        function aggregateOverall(records) {
+          let planned = 0;
+          let actual = 0;
+
+          records.forEach((record) => {
+            const total = sumMonthlyData(record.monthlyData);
+            if (record.type === "予") {
+              planned += total;
+            } else if (record.type === "実") {
+              actual += total;
+            }
+          });
+
+          return [
+            {
+              label: "全体",
+              planned,
+              actual,
+            },
+          ];
+        }
+
+        function aggregateByKey(records, key) {
+          const grouped = {};
+          const empDepts = {};
+
+          records.forEach((record) => {
+            const groupKey = record[key];
+
+            if (key === "employee" && record.department) {
+              empDepts[groupKey] = record.department;
+            }
+
+            if (!grouped[groupKey]) {
+              grouped[groupKey] = { planned: 0, actual: 0 };
+            }
+            const total = sumMonthlyData(record.monthlyData);
+            if (record.type === "予") {
+              grouped[groupKey].planned += total;
+            } else if (record.type === "実") {
+              grouped[groupKey].actual += total;
+            }
+          });
+
+          return Object.entries(grouped).map(([label, data]) => {
+            const item = {
+              label,
+              planned: data.planned,
+              actual: data.actual,
+            };
+            if (key === "employee") {
+              item.department = empDepts[label] || "-";
+            }
+            return item;
+          });
+        }
+
+        function aggregateByMonth(records) {
+          const filteredMonths = getFilteredMonths();
+          const grouped = {};
+
+          filteredMonths.forEach((month) => {
+            grouped[month] = { planned: 0, actual: 0 };
+          });
+
+          records.forEach((record) => {
+            Object.entries(record.monthlyData).forEach(([month, value]) => {
+              if (grouped[month]) {
+                if (record.type === "予") {
+                  grouped[month].planned += value;
+                } else if (record.type === "実") {
+                  grouped[month].actual += value;
+                }
+              }
+            });
+          });
+
+          return Object.entries(grouped).map(([label, data]) => ({
             label,
             planned: data.planned,
             actual: data.actual,
-          };
-          if (key === "employee") {
-            item.department = empDepts[label] || "-";
-          }
-          return item;
-        });
-      }
+          }));
+        }
 
-      function aggregateByMonth(records) {
-        const filteredMonths = getFilteredMonths();
-        const grouped = {};
+        // ========================================
+        // データソート処理（グラフ・テーブル共通）
+        // ========================================
+        function sortChartData(data) {
+          if (!tableSort.key || !data) return;
 
-        filteredMonths.forEach((month) => {
-          grouped[month] = { planned: 0, actual: 0 };
-        });
-
-        records.forEach((record) => {
-          Object.entries(record.monthlyData).forEach(([month, value]) => {
-            if (grouped[month]) {
-              if (record.type === "予") {
-                grouped[month].planned += value;
-              } else if (record.type === "実") {
-                grouped[month].actual += value;
-              }
+          data.sort((a, b) => {
+            let valA, valB;
+            if (tableSort.key === "label") {
+              valA = a.label;
+              valB = b.label;
+              return tableSort.order === "asc"
+                ? valA.localeCompare(valB, "ja")
+                : valB.localeCompare(valA, "ja");
+            } else if (tableSort.key === "department") {
+              valA = a.department || "";
+              valB = b.department || "";
+              return tableSort.order === "asc"
+                ? valA.localeCompare(valB, "ja")
+                : valB.localeCompare(valA, "ja");
+            } else {
+              const getVal = (item, k) => {
+                if (k === "planned") return item.planned;
+                if (k === "actual") return item.actual;
+                if (k === "diff") return item.actual - item.planned;
+                if (k === "rate")
+                  return item.planned > 0
+                    ? (item.actual / item.planned) * 100
+                    : 0;
+                return 0;
+              };
+              valA = getVal(a, tableSort.key);
+              valB = getVal(b, tableSort.key);
+              return tableSort.order === "asc" ? valA - valB : valB - valA;
             }
           });
-        });
+        }
 
-        return Object.entries(grouped).map(([label, data]) => ({
-          label,
-          planned: data.planned,
-          actual: data.actual,
-        }));
-      }
+        // ========================================
+        // データテーブル描画
+        // ========================================
+        function drawTable(data) {
+          // グローバル変数更新
+          if (data) currentChartData = data;
+          const targetData = currentChartData;
+          const tbody = document.querySelector("#dataTable tbody");
+          const container = document.getElementById("dataTableContainer");
 
-      // ========================================
-      // データソート処理（グラフ・テーブル共通）
-      // ========================================
-      function sortChartData(data) {
-        if (!tableSort.key || !data) return;
-
-        data.sort((a, b) => {
-          let valA, valB;
-          if (tableSort.key === "label") {
-            valA = a.label;
-            valB = b.label;
-            return tableSort.order === "asc"
-              ? valA.localeCompare(valB, "ja")
-              : valB.localeCompare(valA, "ja");
-          } else if (tableSort.key === "department") {
-            valA = a.department || "";
-            valB = b.department || "";
-            return tableSort.order === "asc"
-              ? valA.localeCompare(valB, "ja")
-              : valB.localeCompare(valA, "ja");
-          } else {
-            const getVal = (item, k) => {
-              if (k === "planned") return item.planned;
-              if (k === "actual") return item.actual;
-              if (k === "diff") return item.actual - item.planned;
-              if (k === "rate")
-                return item.planned > 0
-                  ? (item.actual / item.planned) * 100
-                  : 0;
-              return 0;
-            };
-            valA = getVal(a, tableSort.key);
-            valB = getVal(b, tableSort.key);
-            return tableSort.order === "asc" ? valA - valB : valB - valA;
+          if (!targetData || targetData.length === 0) {
+            container.style.display = "none";
+            return;
           }
-        });
-      }
+          container.style.display = "block";
 
-      // ========================================
-      // データテーブル描画
-      // ========================================
-      function drawTable(data) {
-        // グローバル変数更新
-        if (data) currentChartData = data;
-        const targetData = currentChartData;
-        const tbody = document.querySelector("#dataTable tbody");
-        const container = document.getElementById("dataTableContainer");
+          const unit = getUnitLabel();
 
-        if (!targetData || targetData.length === 0) {
-          container.style.display = "none";
-          return;
-        }
-        container.style.display = "block";
+          // 分析タイプ取得
+          const currentAnalysisType = document.querySelector(
+            'input[name="analysisType"]:checked'
+          ).value;
+          const showDept = currentAnalysisType === "employee";
 
-        const unit = getUnitLabel();
+          let labelText = "項目";
+          if (currentAnalysisType === "project") labelText = "プロジェクト名";
+          else if (currentAnalysisType === "department") labelText = "部署名";
+          else if (currentAnalysisType === "employee") labelText = "氏名";
+          else if (currentAnalysisType === "monthly") labelText = "年月";
 
-        // 分析タイプ取得
-        const currentAnalysisType = document.querySelector(
-          'input[name="analysisType"]:checked'
-        ).value;
-        const showDept = currentAnalysisType === "employee";
+          // データ変換とソート用プロパティ追加
+          let processedData = targetData.map((item) => {
+            const planned = convertToDisplayUnit(item.planned);
+            const actual = convertToDisplayUnit(item.actual);
+            const diff = actual - planned;
+            const rate = planned > 0 ? (actual / planned) * 100 : 0;
+            return {
+              ...item,
+              displayPlanned: planned,
+              displayActual: actual,
+              diff,
+              rate,
+            };
+          });
 
-        let labelText = "項目";
-        if (currentAnalysisType === "project") labelText = "プロジェクト名";
-        else if (currentAnalysisType === "department") labelText = "部署名";
-        else if (currentAnalysisType === "employee") labelText = "氏名";
-        else if (currentAnalysisType === "monthly") labelText = "年月";
-
-        // データ変換とソート用プロパティ追加
-        let processedData = targetData.map((item) => {
-          const planned = convertToDisplayUnit(item.planned);
-          const actual = convertToDisplayUnit(item.actual);
-          const diff = actual - planned;
-          const rate = planned > 0 ? (actual / planned) * 100 : 0;
-          return {
-            ...item,
-            displayPlanned: planned,
-            displayActual: actual,
-            diff,
-            rate,
-          };
-        });
-
-        // ヘッダー動的更新
-        const thead = document.querySelector("#dataTable thead");
-        let headerHTML = `<tr><th class="align-left" data-key="label">${labelText}</th>`;
-        if (showDept) {
+          // ヘッダー動的更新
+          const thead = document.querySelector("#dataTable thead");
+          let headerHTML = `<tr><th class="align-left" data-key="label">${labelText}</th>`;
+          if (showDept) {
+            headerHTML +=
+              '<th class="align-left" data-key="department">部署</th>';
+          }
           headerHTML +=
-            '<th class="align-left" data-key="department">部署</th>';
-        }
-        headerHTML +=
-          '<th data-key="planned">予定</th><th data-key="actual">実績</th><th data-key="diff">差異</th><th data-key="rate">到達率</th></tr>';
-        thead.innerHTML = headerHTML;
+            '<th data-key="planned">予定</th><th data-key="actual">実績</th><th data-key="diff">差異</th><th data-key="rate">到達率</th></tr>';
+          thead.innerHTML = headerHTML;
 
-        // ヘッダー更新
-        updateTableHeader();
+          // ヘッダー更新
+          updateTableHeader();
 
-        let totalPlanned = 0;
-        let totalActual = 0;
+          let totalPlanned = 0;
+          let totalActual = 0;
 
-        const rows = processedData
-          .map((item) => {
-            totalPlanned += item.displayPlanned;
-            totalActual += item.displayActual;
+          const rows = processedData
+            .map((item) => {
+              totalPlanned += item.displayPlanned;
+              totalActual += item.displayActual;
 
-            const deptCell = showDept
-              ? `<td class="align-left">${item.department || "-"}</td>`
-              : "";
+              const deptCell = showDept
+                ? `<td class="align-left">${item.department || "-"}</td>`
+                : "";
 
-            return `
+              return `
                     <tr>
                         <td class="align-left">${item.label}</td>
                         ${deptCell}
@@ -2450,21 +2469,21 @@
                             : "inherit"
                         }">
                             ${item.diff > 0 ? "+" : ""}${item.diff.toFixed(
-              1
-            )}${unit}
+                1
+              )}${unit}
                         </td>
                         <td>${item.rate.toFixed(1)}%</td>
                     </tr>
                 `;
-          })
-          .join("");
+            })
+            .join("");
 
-        // 合計行
-        const totalDiff = totalActual - totalPlanned;
-        const totalRate =
-          totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0;
+          // 合計行
+          const totalDiff = totalActual - totalPlanned;
+          const totalRate =
+            totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0;
 
-        const totalRow = `
+          const totalRow = `
                 <tr style="font-weight: bold; background-color: var(--bg-tertiary);">
                     <td class="align-left" colspan="${
                       showDept ? 2 : 1
@@ -2479,620 +2498,675 @@
                         : "inherit"
                     }">
                         ${totalDiff > 0 ? "+" : ""}${totalDiff.toFixed(
-          1
-        )}${unit}
+            1
+          )}${unit}
                     </td>
                     <td>${totalRate.toFixed(1)}%</td>
                 </tr>
             `;
 
-        tbody.innerHTML = rows + totalRow;
-      }
-
-      function updateTableHeader() {
-        const currentAnalysisType = document.querySelector(
-          'input[name="analysisType"]:checked'
-        ).value;
-        let labelText = "項目";
-        if (currentAnalysisType === "project") labelText = "プロジェクト名";
-        else if (currentAnalysisType === "department") labelText = "部署名";
-        else if (currentAnalysisType === "employee") labelText = "氏名";
-        else if (currentAnalysisType === "monthly") labelText = "年月";
-
-        const headers = document.querySelectorAll("#dataTable th");
-        headers.forEach((th) => {
-          const key = th.getAttribute("data-key");
-          if (!key) return;
-
-          th.onclick = () => sortTable(key);
-
-          const textBase =
-            key === "label"
-              ? labelText
-              : key === "department"
-              ? "部署"
-              : key === "planned"
-              ? "予定"
-              : key === "actual"
-              ? "実績"
-              : key === "diff"
-              ? "差異"
-              : "到達率";
-
-          let iconChar = "▲";
-          let iconClass = "sort-icon";
-
-          if (tableSort.key === key) {
-            iconChar = tableSort.order === "asc" ? "▲" : "▼";
-            iconClass += " active";
-            th.style.backgroundColor = "#eef2f0";
-          } else {
-            th.style.backgroundColor = "";
-          }
-
-          th.innerHTML = `${textBase}<span class="${iconClass}">${iconChar}</span>`;
-        });
-      }
-
-      // ========================================
-      // 棒グラフ描画
-      // ========================================
-      function drawBarChart(data) {
-        const canvas = document.getElementById("chart");
-        const ctx = canvas.getContext("2d");
-
-        // キャンバスサイズ調整
-        const containerWidth = canvas.parentElement.offsetWidth - 50;
-        canvas.width = Math.max(containerWidth, 600);
-        canvas.height = 350;
-
-        const width = canvas.width;
-        const height = canvas.height;
-        const padding = { top: 40, right: 40, bottom: 80, left: 80 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-
-        // クリア
-        ctx.clearRect(0, 0, width, height);
-
-        if (data.length === 0) {
-          ctx.fillStyle = "#a0a0b0";
-          ctx.font = "16px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("表示するデータがありません", width / 2, height / 2);
-          return;
+          tbody.innerHTML = rows + totalRow;
         }
 
-        // 単位変換を適用したデータを作成
-        const displayData = data.map((d) => ({
-          label: d.label,
-          planned: convertToDisplayUnit(d.planned),
-          actual: convertToDisplayUnit(d.actual),
-        }));
+        function updateTableHeader() {
+          const currentAnalysisType = document.querySelector(
+            'input[name="analysisType"]:checked'
+          ).value;
+          let labelText = "項目";
+          if (currentAnalysisType === "project") labelText = "プロジェクト名";
+          else if (currentAnalysisType === "department") labelText = "部署名";
+          else if (currentAnalysisType === "employee") labelText = "氏名";
+          else if (currentAnalysisType === "monthly") labelText = "年月";
 
-        // 単位取得
-        const unit = getUnitLabel();
+          const headers = document.querySelectorAll("#dataTable th");
+          headers.forEach((th) => {
+            const key = th.getAttribute("data-key");
+            if (!key) return;
 
-        // データ上の最大値
-        const dataMax =
-          Math.max(...displayData.flatMap((d) => [d.planned, d.actual])) || 0;
+            th.onclick = () => sortTable(key);
 
-        // キリの良いステップを計算
-        const step = calculateNiceStep(dataMax, 5);
+            const textBase =
+              key === "label"
+                ? labelText
+                : key === "department"
+                ? "部署"
+                : key === "planned"
+                ? "予定"
+                : key === "actual"
+                ? "実績"
+                : key === "diff"
+                ? "差異"
+                : "到達率";
 
-        // ステップの倍数に切り上げ（最大値）
-        const maxValue = Math.ceil(dataMax / step) * step || step;
+            let iconChar = "▲";
+            let iconClass = "sort-icon";
 
-        // グリッド線
-        ctx.strokeStyle = "#d1d5db";
-        ctx.lineWidth = 1;
-
-        const gridLines = Math.round(maxValue / step);
-
-        for (let i = 0; i <= gridLines; i++) {
-          const value = step * i;
-          const ratio = value / maxValue;
-          const y = padding.top + chartHeight - chartHeight * ratio;
-
-          ctx.beginPath();
-          ctx.moveTo(padding.left, y);
-          ctx.lineTo(width - padding.right, y);
-          ctx.stroke();
-
-          // Y軸ラベル
-          ctx.fillStyle = "#5a5a7a";
-          ctx.font = "11px sans-serif";
-          ctx.textAlign = "right";
-          // 整数なら少数点なし、少数なら1桁
-          const labelValue = Number.isInteger(step)
-            ? value.toString()
-            : value.toFixed(1);
-          ctx.fillText(labelValue + unit, padding.left - 10, y + 4);
-        }
-
-        // 棒グラフ描画
-        const groupWidth = chartWidth / displayData.length;
-        const barWidth = Math.min(groupWidth * 0.35, 60);
-        const gap = barWidth * 0.2;
-
-        // ラベルの回転判定
-        ctx.font = "11px sans-serif";
-        const maxLabelWidth = groupWidth - 10;
-        const rotateLabels = displayData.some(
-          (d) => ctx.measureText(d.label).width > maxLabelWidth
-        );
-
-        displayData.forEach((item, index) => {
-          const x = padding.left + groupWidth * index + groupWidth / 2;
-
-          // 予定（今回はオレンジ）
-          const plannedHeight = (item.planned / maxValue) * chartHeight;
-          const plannedGradient = ctx.createLinearGradient(
-            0,
-            padding.top + chartHeight - plannedHeight,
-            0,
-            padding.top + chartHeight
-          );
-          plannedGradient.addColorStop(0, "#f59e0b");
-          plannedGradient.addColorStop(1, "#d97706");
-          ctx.fillStyle = plannedGradient;
-          ctx.fillRect(
-            x - barWidth - gap / 2,
-            padding.top + chartHeight - plannedHeight,
-            barWidth,
-            plannedHeight
-          );
-
-          // 実績（今回は緑）
-          const actualHeight = (item.actual / maxValue) * chartHeight;
-          const actualGradient = ctx.createLinearGradient(
-            0,
-            padding.top + chartHeight - actualHeight,
-            0,
-            padding.top + chartHeight
-          );
-          actualGradient.addColorStop(0, "#5c9476");
-          actualGradient.addColorStop(1, "#4a7a62");
-          ctx.fillStyle = actualGradient;
-          ctx.fillRect(
-            x + gap / 2,
-            padding.top + chartHeight - actualHeight,
-            barWidth,
-            actualHeight
-          );
-
-          // 値ラベル
-          ctx.fillStyle = "#2f3e35";
-          ctx.font = "10px sans-serif";
-          ctx.textAlign = "center";
-          if (item.planned > 0) {
-            ctx.fillText(
-              item.planned.toFixed(1),
-              x - barWidth / 2 - gap / 2,
-              padding.top + chartHeight - plannedHeight - 5
-            );
-          }
-          if (item.actual > 0) {
-            ctx.fillText(
-              item.actual.toFixed(1),
-              x + barWidth / 2 + gap / 2,
-              padding.top + chartHeight - actualHeight - 5
-            );
-          }
-
-          // X軸ラベル
-          ctx.fillStyle = "#5a5a7a";
-          ctx.font = "11px sans-serif";
-
-          const label = item.label;
-
-          if (rotateLabels) {
-            ctx.save();
-            ctx.textAlign = "right";
-            ctx.translate(x, padding.top + chartHeight + 10);
-            ctx.rotate(-Math.PI / 6);
-            ctx.fillText(
-              label.substring(0, 15) + (label.length > 15 ? "..." : ""),
-              0,
-              0
-            );
-            ctx.restore();
-          } else {
-            ctx.textAlign = "center";
-            ctx.fillText(label, x, padding.top + chartHeight + 20);
-          }
-        });
-      }
-
-      // ========================================
-      // 折れ線グラフ描画
-      // ========================================
-      function drawLineChart(data) {
-        const canvas = document.getElementById("chart");
-        const ctx = canvas.getContext("2d");
-
-        const containerWidth = canvas.parentElement.offsetWidth - 50;
-        canvas.width = Math.max(containerWidth, 600);
-        canvas.height = 350;
-
-        const width = canvas.width;
-        const height = canvas.height;
-        const padding = { top: 40, right: 40, bottom: 80, left: 80 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-
-        ctx.clearRect(0, 0, width, height);
-
-        if (data.length === 0) {
-          ctx.fillStyle = "#5a5a7a";
-          ctx.font = "16px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("表示するデータがありません", width / 2, height / 2);
-          return;
-        }
-
-        // 単位変換を適用したデータを作成
-        const displayData = data.map((d) => ({
-          label: d.label,
-          planned: convertToDisplayUnit(d.planned),
-          actual: convertToDisplayUnit(d.actual),
-        }));
-
-        // 単位取得
-        const unit = getUnitLabel();
-
-        // データ上の最大値
-        const dataMax =
-          Math.max(...displayData.flatMap((d) => [d.planned, d.actual])) || 0;
-
-        // キリの良いステップを計算
-        const step = calculateNiceStep(dataMax, 5);
-
-        // ステップの倍数に切り上げ（最大値）
-        const maxValue = Math.ceil(dataMax / step) * step || step;
-
-        // グリッド線
-        ctx.strokeStyle = "#d1d5db";
-        ctx.lineWidth = 1;
-
-        const gridLines = Math.round(maxValue / step);
-
-        for (let i = 0; i <= gridLines; i++) {
-          const value = step * i;
-          const ratio = value / maxValue;
-          const y = padding.top + chartHeight - chartHeight * ratio;
-
-          ctx.beginPath();
-          ctx.moveTo(padding.left, y);
-          ctx.lineTo(width - padding.right, y);
-          ctx.stroke();
-
-          ctx.fillStyle = "#5a5a7a";
-          ctx.font = "11px sans-serif";
-          ctx.textAlign = "right";
-          const labelValue = Number.isInteger(step)
-            ? value.toString()
-            : value.toFixed(1);
-          ctx.fillText(labelValue + unit, padding.left - 10, y + 4);
-        }
-
-        const stepX = chartWidth / (displayData.length - 1 || 1);
-
-        // ラベルの回転判定
-        ctx.font = "11px sans-serif";
-        const maxLabelWidth = Math.max(stepX - 10, 30);
-        const rotateLabels = displayData.some(
-          (d) => ctx.measureText(d.label).width > maxLabelWidth
-        );
-
-        // 予定線（今回はオレンジ）
-        ctx.beginPath();
-        ctx.strokeStyle = "#d97706";
-        ctx.lineWidth = 3;
-        displayData.forEach((item, index) => {
-          const x = padding.left + stepX * index;
-          const y =
-            padding.top + chartHeight - (item.planned / maxValue) * chartHeight;
-          if (index === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
-        });
-        ctx.stroke();
-
-        // 実績線（今回は緑）
-        ctx.beginPath();
-        ctx.strokeStyle = "#5c9476";
-        ctx.lineWidth = 3;
-        displayData.forEach((item, index) => {
-          const x = padding.left + stepX * index;
-          const y =
-            padding.top + chartHeight - (item.actual / maxValue) * chartHeight;
-          if (index === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
-        });
-        ctx.stroke();
-
-        // ポイントとラベル
-        displayData.forEach((item, index) => {
-          const x = padding.left + stepX * index;
-
-          // 予定ポイント（オレンジ）
-          const plannedY =
-            padding.top + chartHeight - (item.planned / maxValue) * chartHeight;
-          ctx.beginPath();
-          ctx.fillStyle = "#d97706";
-          ctx.arc(x, plannedY, 5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(x, plannedY, 2, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 実績ポイント（緑）
-          const actualY =
-            padding.top + chartHeight - (item.actual / maxValue) * chartHeight;
-          ctx.beginPath();
-          ctx.fillStyle = "#5c9476";
-          ctx.arc(x, actualY, 5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(x, actualY, 2, 0, Math.PI * 2);
-          ctx.fill();
-
-          // X軸ラベル
-          ctx.fillStyle = "#5a5a7a";
-          ctx.font = "11px sans-serif";
-
-          const label = item.label;
-
-          if (rotateLabels) {
-            ctx.save();
-            ctx.textAlign = "right";
-            ctx.translate(x, padding.top + chartHeight + 10);
-            ctx.rotate(-Math.PI / 6);
-            ctx.fillText(
-              label.substring(0, 15) + (label.length > 15 ? "..." : ""),
-              0,
-              0
-            );
-            ctx.restore();
-          } else {
-            ctx.textAlign = "center";
-            ctx.fillText(label, x, padding.top + chartHeight + 20);
-          }
-        });
-      }
-
-      // ========================================
-      // ストレージ管理
-      // ========================================
-      function saveToStorage() {
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-        } catch (e) {
-          console.error("保存エラー:", e);
-        }
-      }
-
-      function loadFromStorage() {
-        try {
-          const saved = localStorage.getItem(STORAGE_KEY);
-          if (saved) {
-            appData = JSON.parse(saved);
-            filters.projects = [...appData.projects];
-            filters.departments = [...appData.departments];
-            filters.employees = [...appData.employees];
-            showUI();
-            updateChart();
-            showToast("保存済みデータを読み込みました");
-          }
-        } catch (e) {
-          console.error("読み込みエラー:", e);
-        }
-      }
-
-      function clearData() {
-        if (confirm("データをクリアしますか？")) {
-          localStorage.removeItem(STORAGE_KEY);
-          location.reload();
-        }
-      }
-
-      // ========================================
-      // トースト通知
-      // ========================================
-      function showToast(message, isError = false) {
-        const toast = document.getElementById("toast");
-        toast.textContent = message;
-        toast.className = "toast" + (isError ? " error" : "");
-        toast.classList.add("show");
-        setTimeout(() => toast.classList.remove("show"), 3000);
-      }
-
-      // ========================================
-      // ウィンドウリサイズ対応
-      // ========================================
-      window.addEventListener("resize", () => {
-        if (appData.records.length > 0) {
-          updateChart();
-        }
-      });
-      // ========================================
-      // お気に入り条件
-      // ========================================
-      appData.savedFilters = [];
-
-      function loadSavedFilters() {
-        const saved = localStorage.getItem("crowdlog_saved_filters");
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              appData.savedFilters = parsed;
+            if (tableSort.key === key) {
+              iconChar = tableSort.order === "asc" ? "▲" : "▼";
+              iconClass += " active";
+              th.style.backgroundColor = "#eef2f0";
             } else {
-              appData.savedFilters = [];
+              th.style.backgroundColor = "";
+            }
+
+            th.innerHTML = `${textBase}<span class="${iconClass}">${iconChar}</span>`;
+          });
+        }
+
+        // ========================================
+        // 棒グラフ描画
+        // ========================================
+        function drawBarChart(data) {
+          const canvas = document.getElementById("chart");
+
+          // キャンバスサイズ調整（高DPI対応）
+          const containerWidth = canvas.parentElement.offsetWidth - 50;
+          const cssWidth = Math.max(containerWidth, 600);
+          const cssHeight = 350;
+          const ratio = window.devicePixelRatio || 1;
+          canvas.width = Math.round(cssWidth * ratio);
+          canvas.height = Math.round(cssHeight * ratio);
+          canvas.style.width = cssWidth + "px";
+          canvas.style.height = cssHeight + "px";
+          const ctx = canvas.getContext("2d");
+          ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+          const width = cssWidth;
+          const height = cssHeight;
+          const padding = { top: 40, right: 40, bottom: 80, left: 80 };
+          const chartWidth = width - padding.left - padding.right;
+          const chartHeight = height - padding.top - padding.bottom;
+
+          // クリア
+          ctx.clearRect(0, 0, width, height);
+
+          if (data.length === 0) {
+            ctx.fillStyle = "#a0a0b0";
+            ctx.font = "16px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("表示するデータがありません", width / 2, height / 2);
+            return;
+          }
+
+          // 単位変換を適用したデータを作成
+          const displayData = data.map((d) => ({
+            label: d.label,
+            planned: convertToDisplayUnit(d.planned),
+            actual: convertToDisplayUnit(d.actual),
+          }));
+
+          // 単位取得
+          const unit = getUnitLabel();
+
+          // データ上の最大値
+          const dataMax =
+            Math.max(...displayData.flatMap((d) => [d.planned, d.actual])) || 0;
+
+          // キリの良いステップを計算
+          const step = calculateNiceStep(dataMax, 5);
+
+          // ステップの倍数に切り上げ（最大値）
+          const maxValue = Math.ceil(dataMax / step) * step || step;
+
+          // グリッド線
+          ctx.strokeStyle = "#d1d5db";
+          ctx.lineWidth = 1;
+
+          const gridLines = Math.round(maxValue / step);
+
+          for (let i = 0; i <= gridLines; i++) {
+            const value = step * i;
+            const ratio = value / maxValue;
+            const y = padding.top + chartHeight - chartHeight * ratio;
+
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+
+            // Y軸ラベル
+            ctx.fillStyle = "#5a5a7a";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "right";
+            // 整数なら少数点なし、少数なら1桁
+            const labelValue = Number.isInteger(step)
+              ? value.toString()
+              : value.toFixed(1);
+            ctx.fillText(labelValue + unit, padding.left - 10, y + 4);
+          }
+
+          // 棒グラフ描画
+          const groupWidth = chartWidth / displayData.length;
+          const barWidth = Math.min(groupWidth * 0.35, 60);
+          const gap = barWidth * 0.2;
+
+          // ラベルの回転判定
+          ctx.font = "11px sans-serif";
+          const maxLabelWidth = groupWidth - 10;
+          const rotateLabels = displayData.some(
+            (d) => ctx.measureText(d.label).width > maxLabelWidth
+          );
+
+          displayData.forEach((item, index) => {
+            const x = padding.left + groupWidth * index + groupWidth / 2;
+
+            // 予定（今回はオレンジ）
+            const plannedHeight = (item.planned / maxValue) * chartHeight;
+            const plannedGradient = ctx.createLinearGradient(
+              0,
+              padding.top + chartHeight - plannedHeight,
+              0,
+              padding.top + chartHeight
+            );
+            plannedGradient.addColorStop(0, "#f59e0b");
+            plannedGradient.addColorStop(1, "#d97706");
+            ctx.fillStyle = plannedGradient;
+            ctx.fillRect(
+              x - barWidth - gap / 2,
+              padding.top + chartHeight - plannedHeight,
+              barWidth,
+              plannedHeight
+            );
+
+            // 実績（今回は緑）
+            const actualHeight = (item.actual / maxValue) * chartHeight;
+            const actualGradient = ctx.createLinearGradient(
+              0,
+              padding.top + chartHeight - actualHeight,
+              0,
+              padding.top + chartHeight
+            );
+            actualGradient.addColorStop(0, "#5c9476");
+            actualGradient.addColorStop(1, "#4a7a62");
+            ctx.fillStyle = actualGradient;
+            ctx.fillRect(
+              x + gap / 2,
+              padding.top + chartHeight - actualHeight,
+              barWidth,
+              actualHeight
+            );
+
+            // 値ラベル
+            ctx.fillStyle = "#2f3e35";
+            ctx.font = "10px sans-serif";
+            ctx.textAlign = "center";
+            if (item.planned > 0) {
+              ctx.fillText(
+                item.planned.toFixed(1),
+                x - barWidth / 2 - gap / 2,
+                padding.top + chartHeight - plannedHeight - 5
+              );
+            }
+            if (item.actual > 0) {
+              ctx.fillText(
+                item.actual.toFixed(1),
+                x + barWidth / 2 + gap / 2,
+                padding.top + chartHeight - actualHeight - 5
+              );
+            }
+
+            // X軸ラベル
+            ctx.fillStyle = "#5a5a7a";
+            ctx.font = "11px sans-serif";
+
+            const label = item.label;
+
+            if (rotateLabels) {
+              ctx.save();
+              ctx.textAlign = "right";
+              ctx.translate(x, padding.top + chartHeight + 10);
+              ctx.rotate(-Math.PI / 6);
+              ctx.fillText(
+                label.substring(0, 15) + (label.length > 15 ? "..." : ""),
+                0,
+                0
+              );
+              ctx.restore();
+            } else {
+              ctx.textAlign = "center";
+              ctx.fillText(label, x, padding.top + chartHeight + 20);
+            }
+          });
+        }
+
+        // ========================================
+        // 折れ線グラフ描画
+        // ========================================
+        function drawLineChart(data) {
+          const canvas = document.getElementById("chart");
+          // 高DPI対応でキャンバスを設定
+          const containerWidth = canvas.parentElement.offsetWidth - 50;
+          const cssWidth = Math.max(containerWidth, 600);
+          const cssHeight = 350;
+          const ratio = window.devicePixelRatio || 1;
+          canvas.width = Math.round(cssWidth * ratio);
+          canvas.height = Math.round(cssHeight * ratio);
+          canvas.style.width = cssWidth + "px";
+          canvas.style.height = cssHeight + "px";
+          const ctx = canvas.getContext("2d");
+          ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+          const width = cssWidth;
+          const height = cssHeight;
+          const padding = { top: 40, right: 40, bottom: 80, left: 80 };
+          const chartWidth = width - padding.left - padding.right;
+          const chartHeight = height - padding.top - padding.bottom;
+
+          ctx.clearRect(0, 0, width, height);
+
+          if (data.length === 0) {
+            ctx.fillStyle = "#5a5a7a";
+            ctx.font = "16px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("表示するデータがありません", width / 2, height / 2);
+            return;
+          }
+
+          // 単位変換を適用したデータを作成
+          const displayData = data.map((d) => ({
+            label: d.label,
+            planned: convertToDisplayUnit(d.planned),
+            actual: convertToDisplayUnit(d.actual),
+          }));
+
+          // 単位取得
+          const unit = getUnitLabel();
+
+          // データ上の最大値
+          const dataMax =
+            Math.max(...displayData.flatMap((d) => [d.planned, d.actual])) || 0;
+
+          // キリの良いステップを計算
+          const step = calculateNiceStep(dataMax, 5);
+
+          // ステップの倍数に切り上げ（最大値）
+          const maxValue = Math.ceil(dataMax / step) * step || step;
+
+          // グリッド線
+          ctx.strokeStyle = "#d1d5db";
+          ctx.lineWidth = 1;
+
+          const gridLines = Math.round(maxValue / step);
+
+          for (let i = 0; i <= gridLines; i++) {
+            const value = step * i;
+            const ratio = value / maxValue;
+            const y = padding.top + chartHeight - chartHeight * ratio;
+
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+
+            ctx.fillStyle = "#5a5a7a";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "right";
+            const labelValue = Number.isInteger(step)
+              ? value.toString()
+              : value.toFixed(1);
+            ctx.fillText(labelValue + unit, padding.left - 10, y + 4);
+          }
+
+          const stepX = chartWidth / (displayData.length - 1 || 1);
+
+          // ラベルの回転判定
+          ctx.font = "11px sans-serif";
+          const maxLabelWidth = Math.max(stepX - 10, 30);
+          const rotateLabels = displayData.some(
+            (d) => ctx.measureText(d.label).width > maxLabelWidth
+          );
+
+          // 予定線（今回はオレンジ）
+          ctx.beginPath();
+          ctx.strokeStyle = "#d97706";
+          ctx.lineWidth = 3;
+          displayData.forEach((item, index) => {
+            const x = padding.left + stepX * index;
+            const y =
+              padding.top +
+              chartHeight -
+              (item.planned / maxValue) * chartHeight;
+            if (index === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          });
+          ctx.stroke();
+
+          // 実績線（今回は緑）
+          ctx.beginPath();
+          ctx.strokeStyle = "#5c9476";
+          ctx.lineWidth = 3;
+          displayData.forEach((item, index) => {
+            const x = padding.left + stepX * index;
+            const y =
+              padding.top +
+              chartHeight -
+              (item.actual / maxValue) * chartHeight;
+            if (index === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          });
+          ctx.stroke();
+
+          // ポイントとラベル
+          displayData.forEach((item, index) => {
+            const x = padding.left + stepX * index;
+
+            // 予定ポイント（オレンジ）
+            const plannedY =
+              padding.top +
+              chartHeight -
+              (item.planned / maxValue) * chartHeight;
+            ctx.beginPath();
+            ctx.fillStyle = "#d97706";
+            ctx.arc(x, plannedY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(x, plannedY, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 実績ポイント（緑）
+            const actualY =
+              padding.top +
+              chartHeight -
+              (item.actual / maxValue) * chartHeight;
+            ctx.beginPath();
+            ctx.fillStyle = "#5c9476";
+            ctx.arc(x, actualY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(x, actualY, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // X軸ラベル
+            ctx.fillStyle = "#5a5a7a";
+            ctx.font = "11px sans-serif";
+
+            const label = item.label;
+
+            if (rotateLabels) {
+              ctx.save();
+              ctx.textAlign = "right";
+              ctx.translate(x, padding.top + chartHeight + 10);
+              ctx.rotate(-Math.PI / 6);
+              ctx.fillText(
+                label.substring(0, 15) + (label.length > 15 ? "..." : ""),
+                0,
+                0
+              );
+              ctx.restore();
+            } else {
+              ctx.textAlign = "center";
+              ctx.fillText(label, x, padding.top + chartHeight + 20);
+            }
+          });
+        }
+
+        // ========================================
+        // ストレージ管理
+        // ========================================
+        function saveToStorage() {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+          } catch (e) {
+            console.error("保存エラー:", e);
+          }
+        }
+
+        function loadFromStorage() {
+          try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+              appData = JSON.parse(saved);
+              filters.projects = [...appData.projects];
+              filters.departments = [...appData.departments];
+              filters.employees = [...appData.employees];
+              showUI();
+              updateChart();
+              showToast("保存済みデータを読み込みました");
             }
           } catch (e) {
-            console.error("JSON parse error", e);
+            console.error("読み込みエラー:", e);
+          }
+        }
+
+        function clearData() {
+          if (confirm("データをクリアしますか？")) {
+            localStorage.removeItem(STORAGE_KEY);
+            location.reload();
+          }
+        }
+
+        // ========================================
+        // トースト通知
+        // ========================================
+        function showToast(message, isError = false) {
+          const toast = document.getElementById("toast");
+          toast.textContent = message;
+          toast.className = "toast" + (isError ? " error" : "");
+          toast.classList.add("show");
+          setTimeout(() => toast.classList.remove("show"), 3000);
+        }
+
+        // ========================================
+        // ウィンドウリサイズ対応
+        // ========================================
+        window.addEventListener("resize", () => {
+          if (appData.records.length > 0) {
+            updateChart();
+          }
+        });
+        // ========================================
+        // お気に入り条件
+        // ========================================
+        appData.savedFilters = [];
+
+        function loadSavedFilters() {
+          const saved = localStorage.getItem("crowdlog_saved_filters");
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed)) {
+                appData.savedFilters = parsed;
+              } else {
+                appData.savedFilters = [];
+              }
+            } catch (e) {
+              console.error("JSON parse error", e);
+              appData.savedFilters = [];
+            }
+          } else {
             appData.savedFilters = [];
           }
-        } else {
-          appData.savedFilters = [];
+          updateSavedFiltersSelect();
         }
-        updateSavedFiltersSelect();
-      }
 
-      function saveSavedFilters() {
-        localStorage.setItem(
-          "crowdlog_saved_filters",
-          JSON.stringify(appData.savedFilters)
-        );
-        updateSavedFiltersSelect();
-      }
-
-      function updateSavedFiltersSelect() {
-        const select = document.getElementById("savedFiltersSelect");
-        if (!select) return;
-        const currentVal = select.value;
-        select.innerHTML =
-          '<option value="">(選択してください)</option>' +
-          appData.savedFilters
-            .map((f) => `<option value="${f.id}">${f.name}</option>`)
-            .join("");
-
-        if (appData.savedFilters.some((f) => f.id === currentVal)) {
-          select.value = currentVal;
-          enableFilterButtons(true);
-        } else {
-          select.value = "";
-          enableFilterButtons(false);
+        function saveSavedFilters() {
+          localStorage.setItem(
+            "crowdlog_saved_filters",
+            JSON.stringify(appData.savedFilters)
+          );
+          updateSavedFiltersSelect();
         }
-      }
 
-      function enableFilterButtons(enabled) {
-        const ids = [
-          "btnOverwriteFilter",
-          "btnCopyFilter",
-          "btnRenameFilter",
-          "btnDeleteFilter",
-        ];
-        ids.forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) el.disabled = !enabled;
-        });
-      }
+        function updateSavedFiltersSelect() {
+          const select = document.getElementById("savedFiltersSelect");
+          if (!select) return;
+          const currentVal = select.value;
+          // 安全にオプションを構築
+          select.innerHTML = "";
+          const defaultOpt = document.createElement("option");
+          defaultOpt.value = "";
+          defaultOpt.textContent = "(選択してください)";
+          select.appendChild(defaultOpt);
+          appData.savedFilters.forEach((f) => {
+            const opt = document.createElement("option");
+            opt.value = f.id;
+            opt.textContent = f.name;
+            select.appendChild(opt);
+          });
 
-      function saveCurrentFilter() {
-        const name = prompt("保存する名前を入力してください:", "現在の条件");
-        if (!name) return;
+          if (appData.savedFilters.some((f) => f.id === currentVal)) {
+            select.value = currentVal;
+            enableFilterButtons(true);
+          } else {
+            select.value = "";
+            enableFilterButtons(false);
+          }
+        }
 
-        const newFilter = {
-          id: Date.now().toString(),
-          name: name,
-          filters: {
-            projects: [...filters.projects],
-            departments: [...filters.departments],
-            employees: [...filters.employees],
-          },
-        };
-        appData.savedFilters.push(newFilter);
-        saveSavedFilters();
+        function enableFilterButtons(enabled) {
+          const ids = [
+            "btnOverwriteFilter",
+            "btnCopyFilter",
+            "btnRenameFilter",
+            "btnDeleteFilter",
+          ];
+          ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !enabled;
+          });
+        }
 
-        document.getElementById("savedFiltersSelect").value = newFilter.id;
-        enableFilterButtons(true);
-      }
+        function saveCurrentFilter() {
+          const name = prompt("保存する名前を入力してください:", "現在の条件");
+          if (!name) return;
 
-      function overwriteCurrentFilter() {
-        const select = document.getElementById("savedFiltersSelect");
-        const id = select.value;
-        if (!id || !confirm("現在選択中のフィルター設定を上書きしますか？"))
-          return;
-
-        const index = appData.savedFilters.findIndex((f) => f.id === id);
-        if (index > -1) {
-          appData.savedFilters[index].filters = {
-            projects: [...filters.projects],
-            departments: [...filters.departments],
-            employees: [...filters.employees],
+          const newFilter = {
+            id: Date.now().toString(),
+            name: name,
+            filters: {
+              projects: [...filters.projects],
+              departments: [...filters.departments],
+              employees: [...filters.employees],
+            },
           };
+          appData.savedFilters.push(newFilter);
+          saveSavedFilters();
+
+          document.getElementById("savedFiltersSelect").value = newFilter.id;
+          enableFilterButtons(true);
+        }
+
+        function overwriteCurrentFilter() {
+          const select = document.getElementById("savedFiltersSelect");
+          const id = select.value;
+          if (!id || !confirm("現在選択中のフィルター設定を上書きしますか？"))
+            return;
+
+          const index = appData.savedFilters.findIndex((f) => f.id === id);
+          if (index > -1) {
+            appData.savedFilters[index].filters = {
+              projects: [...filters.projects],
+              departments: [...filters.departments],
+              employees: [...filters.employees],
+            };
+            saveSavedFilters();
+            select.value = id;
+            alert("上書き保存しました。");
+          }
+        }
+
+        function copyCurrentFilter() {
+          const select = document.getElementById("savedFiltersSelect");
+          const id = select.value;
+          if (!id) return;
+
+          const original = appData.savedFilters.find((f) => f.id === id);
+          if (!original) return;
+
+          const name = prompt(
+            "新しい名前を入力してください:",
+            original.name + " のコピー"
+          );
+          if (!name) return;
+
+          const newFilter = {
+            id: Date.now().toString(),
+            name: name,
+            filters: JSON.parse(JSON.stringify(original.filters)),
+          };
+          appData.savedFilters.push(newFilter);
+          saveSavedFilters();
+
+          document.getElementById("savedFiltersSelect").value = newFilter.id;
+          enableFilterButtons(true);
+        }
+
+        function renameCurrentFilter() {
+          const select = document.getElementById("savedFiltersSelect");
+          const id = select.value;
+          if (!id) return;
+
+          const target = appData.savedFilters.find((f) => f.id === id);
+          if (!target) return;
+
+          const name = prompt("新しい名前を入力してください:", target.name);
+          if (!name) return;
+
+          target.name = name;
           saveSavedFilters();
           select.value = id;
-          alert("上書き保存しました。");
         }
-      }
 
-      function copyCurrentFilter() {
-        const select = document.getElementById("savedFiltersSelect");
-        const id = select.value;
-        if (!id) return;
+        function deleteCurrentFilter() {
+          const select = document.getElementById("savedFiltersSelect");
+          const id = select.value;
+          if (!id || !confirm("本当に削除しますか？")) return;
 
-        const original = appData.savedFilters.find((f) => f.id === id);
-        if (!original) return;
-
-        const name = prompt(
-          "新しい名前を入力してください:",
-          original.name + " のコピー"
-        );
-        if (!name) return;
-
-        const newFilter = {
-          id: Date.now().toString(),
-          name: name,
-          filters: JSON.parse(JSON.stringify(original.filters)),
-        };
-        appData.savedFilters.push(newFilter);
-        saveSavedFilters();
-
-        document.getElementById("savedFiltersSelect").value = newFilter.id;
-        enableFilterButtons(true);
-      }
-
-      function renameCurrentFilter() {
-        const select = document.getElementById("savedFiltersSelect");
-        const id = select.value;
-        if (!id) return;
-
-        const target = appData.savedFilters.find((f) => f.id === id);
-        if (!target) return;
-
-        const name = prompt("新しい名前を入力してください:", target.name);
-        if (!name) return;
-
-        target.name = name;
-        saveSavedFilters();
-        select.value = id;
-      }
-
-      function deleteCurrentFilter() {
-        const select = document.getElementById("savedFiltersSelect");
-        const id = select.value;
-        if (!id || !confirm("本当に削除しますか？")) return;
-
-        appData.savedFilters = appData.savedFilters.filter((f) => f.id !== id);
-        saveSavedFilters();
-      }
-
-      function applySavedFilter(id) {
-        if (!id) {
-          enableFilterButtons(false);
-          return;
+          appData.savedFilters = appData.savedFilters.filter(
+            (f) => f.id !== id
+          );
+          saveSavedFilters();
         }
-        const target = appData.savedFilters.find((f) => f.id === id);
-        if (target) {
-          filters.projects = [...target.filters.projects];
-          filters.departments = [...target.filters.departments];
-          filters.employees = [...target.filters.employees];
-          updateFiltersUI();
-          updateChart();
-          enableFilterButtons(true);
+
+        function applySavedFilter(id) {
+          if (!id) {
+            enableFilterButtons(false);
+            return;
+          }
+          const target = appData.savedFilters.find((f) => f.id === id);
+          if (target) {
+            filters.projects = [...target.filters.projects];
+            filters.departments = [...target.filters.departments];
+            filters.employees = [...target.filters.employees];
+            updateFiltersUI();
+            updateChart();
+            enableFilterButtons(true);
+          }
         }
-      }
+        // エクスポート: インラインハンドラや外部から必要な関数のみグローバルに公開
+        try {
+          window.CrowdLog = {
+            processFile,
+            clearData,
+            resetPeriod,
+            selectAll,
+            deselectAll,
+            updateFilterSort,
+            saveCurrentFilter,
+            overwriteCurrentFilter,
+            copyCurrentFilter,
+            renameCurrentFilter,
+            deleteCurrentFilter,
+            applySavedFilter,
+            loadSavedFilters,
+            saveSavedFilters,
+            saveToStorage,
+            loadFromStorage,
+            toggleFilter,
+          };
+          Object.assign(window, window.CrowdLog);
+        } catch (e) {
+          console.warn("Export failed", e);
+        }
+      })();
     </script>
   </body>
 </html>
