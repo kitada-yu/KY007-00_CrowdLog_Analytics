@@ -630,6 +630,34 @@
       .legend {
         display: flex;
         gap: 20px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .legend-note {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+      }
+
+      .legend-employee-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .legend-employee-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8rem;
+      }
+
+      .legend-swatch {
+        width: 18px;
+        height: 4px;
+        border-radius: 4px;
+        background: var(--accent-blue);
       }
 
       .chart-controls {
@@ -1388,6 +1416,8 @@
           employees: "selected",
         };
 
+        let defaultLegendHtml = "";
+
         function updateFilterSort(type, value) {
           filterSorts[type] = value;
           updateFiltersUI();
@@ -1426,6 +1456,10 @@
         // 初期化
         // ========================================
         document.addEventListener("DOMContentLoaded", () => {
+          const legend = document.querySelector(".legend");
+          if (legend) {
+            defaultLegendHtml = legend.innerHTML;
+          }
           initDropZone();
           initControlListeners();
           loadFromStorage();
@@ -2600,6 +2634,12 @@
               break;
           }
 
+          const useMonthlyEmployeeLines =
+            analysisType === "monthly" && chartType === "line";
+          const monthlyEmployeeSeries = useMonthlyEmployeeLines
+            ? aggregateMonthlyByEmployee(filteredRecords)
+            : null;
+
           // ソート
           console.log("chartData computed:", chartData);
           sortChartData(chartData);
@@ -2609,7 +2649,9 @@
             drawBarChart(chartData);
           } else {
             console.log("calling drawLineChart with", chartData.length);
-            drawLineChart(chartData);
+            drawLineChart(chartData, {
+              monthlyEmployeeSeries,
+            });
           }
 
           // テーブル描画
@@ -2699,6 +2741,38 @@
             planned: data.planned,
             actual: data.actual,
           }));
+        }
+
+        function aggregateMonthlyByEmployee(records) {
+          const months = getFilteredMonths();
+          const monthSet = new Set(months);
+          const grouped = {};
+
+          records.forEach((record) => {
+            const employee = record.employee || "(未設定)";
+            if (!grouped[employee]) {
+              grouped[employee] = { planned: {}, actual: {} };
+            }
+
+            Object.entries(record.monthlyData).forEach(([month, value]) => {
+              if (!monthSet.has(month)) return;
+              if (record.type === "予") {
+                grouped[employee].planned[month] =
+                  (grouped[employee].planned[month] || 0) + value;
+              } else if (record.type === "実") {
+                grouped[employee].actual[month] =
+                  (grouped[employee].actual[month] || 0) + value;
+              }
+            });
+          });
+
+          const series = Object.entries(grouped).map(([employee, data]) => ({
+            employee,
+            planned: months.map((month) => data.planned[month] || 0),
+            actual: months.map((month) => data.actual[month] || 0),
+          }));
+
+          return { months, series };
         }
 
         // ========================================
@@ -2914,7 +2988,56 @@
         // ========================================
         // 棒グラフ描画
         // ========================================
+        function getSeriesColor(index) {
+          const palette = [
+            "#5c9476",
+            "#d97706",
+            "#4a7a62",
+            "#0ea5e9",
+            "#7c5c94",
+            "#f97316",
+            "#14b8a6",
+            "#e11d48",
+            "#64748b",
+          ];
+          if (index < palette.length) return palette[index];
+          const hue = (index * 47) % 360;
+          return `hsl(${hue}, 55%, 45%)`;
+        }
+
+        function resetLegend() {
+          const legend = document.querySelector(".legend");
+          if (legend && defaultLegendHtml) {
+            legend.innerHTML = defaultLegendHtml;
+          }
+        }
+
+        function updateLegendForMonthlyLine(series) {
+          const legend = document.querySelector(".legend");
+          if (!legend) return;
+          if (!series || series.length === 0) {
+            resetLegend();
+            return;
+          }
+          const itemsHtml = series
+            .map((item, index) => {
+              const color = getSeriesColor(index);
+              return `
+                <div class="legend-employee-item">
+                  <span class="legend-swatch" style="background:${color};"></span>
+                  <span>${escapeHtml(item.employee)}</span>
+                </div>
+              `;
+            })
+            .join("");
+          legend.innerHTML = `
+            <div class="legend-note">予定: 点線 / 実績: 実線</div>
+            <div class="legend-employee-list">${itemsHtml}</div>
+          `;
+        }
+
         function drawBarChart(data) {
+          resetLegend();
           const canvas = document.getElementById("chart");
 
           // キャンバスサイズ調整（高DPI対応）
@@ -3142,7 +3265,7 @@
         // ========================================
         // 折れ線グラフ描画
         // ========================================
-        function drawLineChart(data) {
+        function drawLineChart(data, options = {}) {
           const canvas = document.getElementById("chart");
           // 高DPI対応でキャンバスを設定
           const containerWidth = canvas.parentElement.offsetWidth - 50;
@@ -3165,6 +3288,7 @@
           ctx.clearRect(0, 0, width, height);
 
           if (data.length === 0) {
+            resetLegend();
             ctx.fillStyle = "#5a5a7a";
             ctx.font = "16px sans-serif";
             ctx.textAlign = "center";
@@ -3172,6 +3296,189 @@
             return;
           }
 
+          const monthlyEmployeeSeries = options.monthlyEmployeeSeries;
+          if (
+            monthlyEmployeeSeries &&
+            Array.isArray(monthlyEmployeeSeries.series) &&
+            monthlyEmployeeSeries.series.length > 0
+          ) {
+            updateLegendForMonthlyLine(monthlyEmployeeSeries.series);
+            const months = monthlyEmployeeSeries.months || [];
+            const displaySeries = monthlyEmployeeSeries.series.map(
+              (seriesItem, index) => ({
+                employee: seriesItem.employee,
+                color: getSeriesColor(index),
+                planned: seriesItem.planned.map((v) => convertToDisplayUnit(v)),
+                actual: seriesItem.actual.map((v) => convertToDisplayUnit(v)),
+              })
+            );
+
+            const dataMax =
+              Math.max(
+                ...displaySeries.flatMap((s) => [...s.planned, ...s.actual])
+              ) || 0;
+            const step = calculateNiceStep(dataMax, 5);
+            const maxValue = Math.ceil(dataMax / step) * step || step;
+
+            ctx.strokeStyle = "#d1d5db";
+            ctx.lineWidth = 1;
+            const gridLines = Math.round(maxValue / step);
+            for (let i = 0; i <= gridLines; i++) {
+              const value = step * i;
+              const ratio = value / maxValue;
+              const y = padding.top + chartHeight - chartHeight * ratio;
+
+              ctx.beginPath();
+              ctx.moveTo(padding.left, y);
+              ctx.lineTo(width - padding.right, y);
+              ctx.stroke();
+
+              ctx.fillStyle = "#5a5a7a";
+              ctx.font = "11px sans-serif";
+              ctx.textAlign = "right";
+              const labelValue = Number.isInteger(step)
+                ? value.toString()
+                : value.toFixed(1);
+              ctx.fillText(labelValue + getUnitLabel(), padding.left - 10, y + 4);
+            }
+
+            let stepX = chartWidth / (months.length - 1 || 1);
+            ctx.font = "11px sans-serif";
+            const maxLabelWidth = Math.max(stepX - 10, 30);
+            const maxLabelPixel = Math.max(
+              ...months.map((label) => ctx.measureText(label).width),
+              0
+            );
+            let rotateLabels = months.some(
+              (label) => ctx.measureText(label).width > maxLabelWidth
+            );
+
+            if (rotateLabels && months.length > 0) {
+              const angleCos = Math.cos(Math.PI / 6);
+              const requiredLeft = Math.ceil(maxLabelPixel * angleCos + 12);
+              if (requiredLeft > padding.left) {
+                padding.left = requiredLeft;
+                chartWidth = width - padding.left - padding.right;
+                chartHeight = height - padding.top - padding.bottom;
+                stepX = chartWidth / (months.length - 1 || 1);
+              }
+            }
+
+            displaySeries.forEach((seriesItem) => {
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = seriesItem.color;
+              ctx.setLineDash([6, 4]);
+              ctx.beginPath();
+              seriesItem.planned.forEach((value, index) => {
+                const x = padding.left + stepX * index;
+                const y =
+                  padding.top + chartHeight - (value / maxValue) * chartHeight;
+                if (index === 0) {
+                  ctx.moveTo(x, y);
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              });
+              ctx.stroke();
+              ctx.setLineDash([]);
+
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              seriesItem.actual.forEach((value, index) => {
+                const x = padding.left + stepX * index;
+                const y =
+                  padding.top + chartHeight - (value / maxValue) * chartHeight;
+                if (index === 0) {
+                  ctx.moveTo(x, y);
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              });
+              ctx.stroke();
+
+              seriesItem.planned.forEach((value, index) => {
+                const x = padding.left + stepX * index;
+                const y =
+                  padding.top + chartHeight - (value / maxValue) * chartHeight;
+                ctx.beginPath();
+                ctx.strokeStyle = seriesItem.color;
+                ctx.fillStyle = "#ffffff";
+                ctx.lineWidth = 2;
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+              });
+
+              seriesItem.actual.forEach((value, index) => {
+                const x = padding.left + stepX * index;
+                const y =
+                  padding.top + chartHeight - (value / maxValue) * chartHeight;
+                ctx.beginPath();
+                ctx.fillStyle = seriesItem.color;
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+              });
+            });
+
+            months.forEach((label, index) => {
+              const x = padding.left + stepX * index;
+              ctx.fillStyle = "#5a5a7a";
+              ctx.font = "11px sans-serif";
+              if (rotateLabels) {
+                ctx.save();
+                ctx.textAlign = "right";
+                ctx.translate(x, padding.top + chartHeight + 10);
+                ctx.rotate(-Math.PI / 6);
+                ctx.fillText(
+                  label.substring(0, 15) + (label.length > 15 ? "..." : ""),
+                  0,
+                  0
+                );
+                ctx.restore();
+              } else {
+                ctx.textAlign = "center";
+                ctx.fillText(label, x, padding.top + chartHeight + 20);
+              }
+            });
+
+            try {
+              const yLineToggle = document.getElementById("yLineToggle");
+              const yLineInput = document.getElementById("yLineValue");
+              if (yLineToggle && yLineToggle.checked && yLineInput) {
+                const yVal = parseFloat(yLineInput.value);
+                if (!isNaN(yVal) && maxValue > 0) {
+                  const ratioVal = Math.max(
+                    0,
+                    Math.min(yVal / (maxValue || 1), 1)
+                  );
+                  const y = padding.top + chartHeight - chartHeight * ratioVal;
+                  ctx.save();
+                  ctx.strokeStyle = "rgba(200,40,40,0.9)";
+                  ctx.lineWidth = 1.5;
+                  ctx.setLineDash([6, 4]);
+                  ctx.beginPath();
+                  ctx.moveTo(padding.left, y);
+                  ctx.lineTo(width - padding.right, y);
+                  ctx.stroke();
+                  ctx.setLineDash([]);
+                  ctx.fillStyle = "rgba(200,40,40,0.95)";
+                  ctx.font = "12px sans-serif";
+                  ctx.textAlign = "right";
+                  ctx.fillText(
+                    yVal + getUnitLabel(),
+                    width - padding.right - 6,
+                    y - 6
+                  );
+                  ctx.restore();
+                }
+              }
+            } catch (e) {
+              console.warn("yLine draw error", e);
+            }
+            return;
+          }
+
+          resetLegend();
           // 単位変換を適用したデータを作成
           const displayData = data.map((d) => ({
             label: d.label,
