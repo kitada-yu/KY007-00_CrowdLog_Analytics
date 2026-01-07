@@ -1,4 +1,4 @@
-      (function () {
+(function () {
         // ========================================
         // グローバル変数
         // ========================================
@@ -1968,35 +1968,6 @@
               ctx.fillText(label, x, padding.top + chartHeight + 20);
             }
           });
-
-          // 任意のYライン描画（折れ線も同様に表示）
-          try {
-            const yLineToggle = document.getElementById("yLineToggle");
-            const yLineInput = document.getElementById("yLineValue");
-            if (yLineToggle && yLineToggle.checked && yLineInput) {
-              const yVal = parseFloat(yLineInput.value);
-              if (!isNaN(yVal) && maxValue > 0) {
-                const ratioVal = Math.max(0, Math.min(yVal / (maxValue || 1), 1));
-                const y = padding.top + chartHeight - chartHeight * ratioVal;
-                ctx.save();
-                ctx.strokeStyle = "rgba(200,40,40,0.9)";
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([6, 4]);
-                ctx.beginPath();
-                ctx.moveTo(padding.left, y);
-                ctx.lineTo(width - padding.right, y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.fillStyle = "rgba(200,40,40,0.95)";
-                ctx.font = "12px sans-serif";
-                ctx.textAlign = "right";
-                ctx.fillText(yVal + getUnitLabel(), width - padding.right - 6, y - 6);
-                ctx.restore();
-              }
-            }
-          } catch (e) {
-            console.warn("yLine draw error", e);
-          }
         }
 
         // ========================================
@@ -2288,30 +2259,198 @@
             persistCurrentFilters();
           }
         }
-        // エクスポート: インラインハンドラや外部から必要な関数のみグローバルに公開
-        try {
-          window.CrowdLog = {
-            processFile,
-            clearData,
-            resetPeriod,
-            selectAll,
-            deselectAll,
-            updateFilterSort,
-            saveCurrentFilter,
-            overwriteCurrentFilter,
-            copyCurrentFilter,
-            renameCurrentFilter,
-            deleteCurrentFilter,
-            applySavedFilter,
-            loadSavedFilters,
-            saveSavedFilters,
-            saveToStorage,
-            loadFromStorage,
-            toggleFilter,
-            updatePeriodFilter,
-          };
-          Object.assign(window, window.CrowdLog);
-        } catch (e) {
-          console.warn("Export failed", e);
-        }
-      })();
+        /**
+ * records: [{ employee: '名前', planned: number, actual: number, date: 'YYYY-MM-DD', ... }, ...]
+ * selectedEmployees: ['社員A','社員B', ...] - 表示する従業員リスト（空なら全員）
+ * canvasId: 描画先キャンバスの id（例: 'chart'）
+ * unitFactor: 表示単位変換（例: 人日なら /8 等）。省略時は 1。
+ */
+(function () {
+  function toMonthKey(dateStr) {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}/${m}`;
+  }
+
+  function uniqueSorted(arr) {
+    return Array.from(new Set(arr)).sort();
+  }
+
+  function genColor(i, total) {
+    // 色相を分散（見やすさ重視）
+    const hue = Math.round((360 * i) / Math.max(1, total));
+    return `hsl(${hue} 70% 45%)`;
+  }
+
+  window.computeEmployeeMonthlySeries = function (records, selectedEmployees = [], unitFactor = 1) {
+    const valid = (r) => r && r.date && (!isNaN(r.planned)) && (!isNaN(r.actual));
+    const recs = (records || []).filter(valid);
+    const months = uniqueSorted(recs.map(r => toMonthKey(r.date)).filter(Boolean));
+    const employees = selectedEmployees.length ? selectedEmployees : uniqueSorted(recs.map(r => r.employee).filter(Boolean));
+
+    const series = employees.map((emp, idx) => {
+      const empRecs = recs.filter(r => r.employee === emp);
+      const planned = months.map(m => empRecs.filter(r => toMonthKey(r.date) === m).reduce((s, r) => s + Number(r.planned || 0), 0) / unitFactor);
+      const actual = months.map(m => empRecs.filter(r => toMonthKey(r.date) === m).reduce((s, r) => s + Number(r.actual || 0), 0) / unitFactor);
+      return {
+        employee: emp,
+        color: genColor(idx, employees.length),
+        planned,
+        actual
+      };
+    });
+
+    return { months, series };
+  };
+
+  // シンプルな線グラフ描画（Chart.js 未使用の独自描画）
+  window.renderEmployeeMonthlyTrend = function (records, selectedEmployees, canvasId = 'chart', unitFactor = 1) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    // DPR に対応してキャンバスをリサイズ
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || canvas.width;
+    const cssH = canvas.clientHeight || canvas.height;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.scale(dpr, dpr);
+
+    const { months, series } = window.computeEmployeeMonthlySeries(records, selectedEmployees, unitFactor);
+
+    // 背景クリア
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    if (!months.length || !series.length) {
+      // ラベルのみ表示
+      ctx.fillStyle = 'var(--text-secondary, #666)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('データがありません', 10, 20);
+      return;
+    }
+
+    // マージン
+    const margin = { left: 50, right: 20, top: 24, bottom: 40 };
+    const plotW = cssW - margin.left - margin.right;
+    const plotH = cssH - margin.top - margin.bottom;
+
+    // x 軸ラベル位置
+    const xCount = months.length;
+    const xStep = plotW / Math.max(1, xCount - 1);
+
+    // y 軸値レンジ（系列全体の min/max）
+    let yMax = -Infinity;
+    let yMin = Infinity;
+    series.forEach(s => {
+      yMax = Math.max(yMax, ...s.planned, ...s.actual);
+      yMin = Math.min(yMin, ...s.planned, ...s.actual);
+    });
+    if (!isFinite(yMax)) yMax = 1;
+    if (!isFinite(yMin)) yMin = 0;
+    // 少し余白
+    const pad = (yMax - yMin) * 0.12 || 1;
+    yMax += pad;
+    yMin = Math.max(0, yMin - pad);
+
+    const valueToY = v => margin.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+    const idxToX = i => margin.left + i * xStep;
+
+    // グリッドと軸ラベル
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // 横グリッド 4本
+    const gridLines = 4;
+    for (let gi = 0; gi <= gridLines; gi++) {
+      const y = margin.top + (plotH * gi) / gridLines;
+      ctx.moveTo(margin.left, y);
+      ctx.lineTo(margin.left + plotW, y);
+    }
+    ctx.stroke();
+
+    // y ラベル
+    ctx.fillStyle = 'var(--text-secondary, #666)';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let gi = 0; gi <= gridLines; gi++) {
+      const v = yMax - ((yMax - yMin) * gi) / gridLines;
+      const y = margin.top + (plotH * gi) / gridLines;
+      ctx.fillText(Number(v.toFixed(2)), margin.left - 8, y);
+    }
+
+    // x ラベル
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    months.forEach((m, i) => {
+      ctx.fillStyle = 'var(--text-secondary, #666)';
+      ctx.fillText(m, idxToX(i), margin.top + plotH + 8);
+    });
+
+    // 各従業員を描画（実績＝実線、予定＝点線、同色）
+    series.forEach((s) => {
+      // 実績（実線）
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = s.color;
+      s.actual.forEach((v, i) => {
+        const x = idxToX(i);
+        const y = valueToY(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      // ポイント
+      ctx.fillStyle = s.color;
+      s.actual.forEach((v, i) => {
+        const x = idxToX(i);
+        const y = valueToY(v);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 予定（点線）
+      ctx.beginPath();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = s.color;
+      s.planned.forEach((v, i) => {
+        const x = idxToX(i);
+        const y = valueToY(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      // 小さなポイント（予定）
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = s.color;
+      s.planned.forEach((v, i) => {
+        const x = idxToX(i);
+        const y = valueToY(v);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+      ctx.setLineDash([]); // リセット
+    });
+
+    // 凡例（右上）
+    const legendX = cssW - margin.right - 10;
+    let legendY = margin.top + 6;
+    ctx.textAlign = 'right';
+    ctx.font = '12px sans-serif';
+    series.forEach((s) => {
+      // 色箱
+      ctx.fillStyle = s.color;
+      ctx.fillRect(legendX - 50, legendY - 8, 10, 10);
+      // ラベル（従業員名）
+      ctx.fillStyle = 'var(--text-primary, #222)';
+      ctx.fillText(s.employee, legendX - 60, legendY);
+      legendY += 18;
+    });
+  };
+})();
