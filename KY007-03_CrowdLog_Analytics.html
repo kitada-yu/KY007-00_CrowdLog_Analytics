@@ -13,28 +13,7 @@
       <!-- Header & Drop Zone -->
       <div class="header-row">
         <div class="header-content">
-          <div class="app-logo">
-            <div class="app-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <line x1="18" y1="20" x2="18" y2="10"></line>
-                <line x1="12" y1="20" x2="12" y2="4"></line>
-                <line x1="6" y1="20" x2="6" y2="14"></line>
-              </svg>
-            </div>
-            <div class="app-title-group">
-              <div class="app-title-main">CrowdLog Analytics</div>
-              <div class="app-title-sub">業務時間予実分析ダッシュボード</div>
-            </div>
-          </div>
+          <div class="app-logo"></div>
         </div>
 
         <div class="file-timestamp-box">
@@ -42,54 +21,15 @@
         </div>
 
         <div style="display: flex; gap: 15px; align-items: stretch">
-          <div class="drop-area-vertical">
-            <div class="drop-zone" id="dropZone" aria-label="CSVファイルを選択">
-              <div style="display:flex;align-items:center;gap:12px;width:100%;">
-                <div class="drop-zone-icon" aria-hidden="true">
-                  <!-- Excel/CSV風アイコン: 簡易な表と小さな緑のバッジ -->
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <rect x="1" y="3" width="14" height="18" rx="2" fill="#ffffff" stroke="#4CAF50" stroke-width="1.2"></rect>
-                    <path d="M3 7h12M3 11h12M3 15h12" stroke="#4CAF50" stroke-width="0.9" stroke-linecap="round"></path>
-                    <rect x="16" y="5" width="6" height="6" rx="1" fill="#1E8E3E"></rect>
-                    <text x="18.5" y="9.2" font-size="3" fill="#fff" font-family="sans-serif">CSV</text>
-                  </svg>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-                  <div style="display:flex;align-items:center;gap:8px;">
-                    <input type="file" id="fileInput" accept=".csv" aria-label="CSVファイルを選択" />
-                    <button type="button" id="btnSelectFile" class="btn-select-file">CSVを読み込む</button>
-                  </div>
-                  <div class="file-info hidden" id="fileInfo" style="font-size:0.85rem;color:var(--text-secondary);"></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 文字コード選択は廃止: 常に自動検出を使用 -->
+          <!-- 追加: ファイル選択ボタン / 非表示 input / ドロップゾーン / ファイル情報 -->
+          <div id="fileControls" style="display:flex;gap:8px;align-items:center;">
+            <input id="fileInput" type="file" accept=".csv" style="display:none" />
+            <button id="btnSelectFile" type="button">CSVを選択</button>
+            <div id="fileInfo" class="file-info hidden" aria-live="polite"></div>
           </div>
-          <div id="fileControls"
-            style="
-              display: flex;
-              flex-direction: column;
-              gap: 5px;
-              justify-content: center;
-            "
-          >
-            <button
-              class="btn btn-secondary btn-small"
-              id="btnReload"
-              onclick="location.reload()"
-              style="white-space: nowrap"
-            >
-              🔄 再読込
-            </button>
-            <button
-              class="btn btn-danger btn-small hidden"
-              id="btnClear"
-              onclick="clearData()"
-              style="white-space: nowrap"
-            >
-              🗑️ クリア
-            </button>
+
+          <div id="dropZone" class="drop-zone" style="min-width:220px;padding:10px;border:1px dashed #ccc;border-radius:6px;">
+            <div style="text-align:center;font-size:13px;color:#666">ここにCSVをドロップ</div>
           </div>
         </div>
       </div>
@@ -375,72 +315,13 @@
       <!-- Chart Section -->
       <div class="chart-section hidden" id="chartSection">
         <div class="chart-container">
-          <canvas id="chart" width="1100" height="350"></canvas>
+          <!-- 追加: 描画用キャンバス -->
+          <canvas id="chart" width="800" height="350" style="width:100%;height:350px;"></canvas>
         </div>
-        <div class="chart-footer">
-          <div class="legend">
-            <div class="legend-item">
-              <div class="legend-color planned"></div>
-              <span>予定時間</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-color actual"></div>
-              <span>実績時間</span>
-            </div>
-          </div>
-
-          <div class="chart-controls">
-            <div class="chart-control-group">
-              <span class="chart-control-label">グラフ:</span>
-              <div class="radio-group" id="chartType" role="radiogroup">
-                <label class="radio-item active">
-                  <input type="radio" name="chartType" value="bar" checked />
-                  棒
-                </label>
-                <label class="radio-item">
-                  <input type="radio" name="chartType" value="line" />
-                  線
-                </label>
-              </div>
-            </div>
-            <div class="chart-control-group">
-              <span class="chart-control-label">基準線:</span>
-              <input id="yLineValue" type="number" step="0.1" placeholder="値" style="width:80px;padding:4px;border:1px solid var(--border-color);border-radius:4px;" />
-              <label style="display:flex;align-items:center;gap:6px;margin-left:6px;">
-                <input id="yLineToggle" type="checkbox" style="width:16px;height:16px;" /> 表示
-              </label>
-            </div>
-            <div class="chart-control-group">
-              <span class="chart-control-label">単位:</span>
-              <div class="radio-group" id="unitType" role="radiogroup">
-                <label class="radio-item">
-                  <input type="radio" name="unitType" value="hours" />
-                  時間(h)
-                </label>
-                <label class="radio-item active">
-                  <input type="radio" name="unitType" value="days" checked />
-                  人日
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div class="chart-footer"></div>
 
         <!-- Data Table -->
-        <div class="table-container" id="dataTableContainer">
-          <table class="data-table" id="dataTable">
-            <thead>
-              <tr>
-                <th class="align-left" data-key="label">項目</th>
-                <th data-key="planned">予定</th>
-                <th data-key="actual">実績</th>
-                <th data-key="diff">差異</th>
-                <th data-key="rate">達成率</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <div class="table-container" id="dataTableContainer"></div>
       </div>
     </div>
 
